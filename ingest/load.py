@@ -65,6 +65,18 @@ DDL = {
             _LOADED_AT    TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP()
         )
     """,
+    "DECKLISTS": """
+        CREATE TABLE IF NOT EXISTS RAW.PTCG.DECKLISTS (
+            TOURNAMENT_ID   STRING  NOT NULL,
+            PLAYER_USERNAME STRING  NOT NULL,
+            CARD_CATEGORY   STRING,
+            CARD_NAME       STRING,
+            CARD_SET        STRING,
+            CARD_NUMBER     STRING,
+            CARD_COUNT      INTEGER,
+            _LOADED_AT      TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP()
+        )
+    """,
 }
 
 
@@ -142,6 +154,30 @@ def load_tournament_data(cur, client: LimitlessClient, tournament_id: str):
                 s.get("drop"),
             ),
         )
+
+    # deck lists (available without API key)
+    for s in standings:
+        username = s.get("player")
+        decklist = s.get("decklist") or {}
+        for category in ("pokemon", "trainer", "energy"):
+            for card in decklist.get(category, []):
+                cur.execute(
+                    """
+                    INSERT INTO RAW.PTCG.DECKLISTS
+                      (TOURNAMENT_ID, PLAYER_USERNAME, CARD_CATEGORY,
+                       CARD_NAME, CARD_SET, CARD_NUMBER, CARD_COUNT)
+                    VALUES (%s, %s, %s, %s, %s, %s, %s)
+                    """,
+                    (
+                        tournament_id,
+                        username,
+                        category,
+                        card.get("name"),
+                        card.get("set"),
+                        card.get("number"),
+                        card.get("count"),
+                    ),
+                )
 
     pairings = client.get_pairings(tournament_id)
     for p in pairings:

@@ -28,3 +28,13 @@ sources:
             tests: [not_null]
           - name: round
             tests: [not_null]
+
+      - name: decklists
+        description: Individual card entries per player per tournament. Available without API key.
+        columns:
+          - name: tournament_id
+            tests: [not_null]
+          - name: player_username
+            tests: [not_null]
+          - name: card_name
+            tests: [not_null]

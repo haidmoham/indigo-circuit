@@ -36,3 +36,15 @@ models:
         tests: [not_null]
       - name: opponent_username
         tests: [not_null]
+
+  - name: card_archetype_stats
+    description: >
+      Per-archetype card inclusion rates and counts. Powers tech card detection
+      (is_tech_card = inclusion_rate < 30%) and meta card analysis.
+    columns:
+      - name: deck_id
+        tests: [not_null]
+      - name: card_name
+        tests: [not_null]
+      - name: inclusion_rate
+        description: Share of archetype lists containing this card (0.0–1.0).
