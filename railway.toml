@@ -1,0 +1,6 @@
+[build]
+builder = "nixpacks"
+
+[deploy]
+startCommand = "python3 ingest/load.py --pages 999"
+restartPolicyType = "never"
