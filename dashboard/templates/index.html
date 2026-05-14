@@ -1,0 +1,32 @@
+{% extends "base.html" %}
+{% block title %}PTCG Scout — Player Search{% endblock %}
+
+{% block content %}
+<div class="search-bar">
+  <input id="q" type="text" placeholder="Search player name or username…" autocomplete="off" />
+</div>
+<div id="results"></div>
+{% endblock %}
+
+{% block scripts %}
+const input = document.getElementById('q');
+const results = document.getElementById('results');
+let debounce;
+
+input.addEventListener('input', () => {
+  clearTimeout(debounce);
+  debounce = setTimeout(async () => {
+    const q = input.value.trim();
+    if (q.length < 2) { results.innerHTML = ''; return; }
+    const rows = await fetch(`/api/search?q=${encodeURIComponent(q)}`).then(r => r.json());
+    results.innerHTML = rows.map(r => `
+      <div class="card" style="margin-bottom:0.75rem; cursor:pointer"
+           onclick="location.href='/player/${r.player_username}'">
+        <strong>${r.player_name || r.player_username}</strong>
+        <span style="color:var(--muted); margin-left:0.5rem">${r.player_username}</span>
+        <span style="float:right; color:var(--muted)">${r.tournaments_entered} tournaments · best: #${r.best_placement}</span>
+      </div>
+    `).join('') || '<p style="color:var(--muted)">No players found.</p>';
+  }, 250);
+});
+{% endblock %}

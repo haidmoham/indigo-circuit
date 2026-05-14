@@ -1,0 +1,30 @@
+version: 2
+
+sources:
+  - name: ptcg_raw
+    database: PTCG_SCOUTING
+    schema: RAW.PTCG
+    tables:
+      - name: tournaments
+        description: Raw tournament metadata from the Limitless Play API.
+        columns:
+          - name: id
+            tests: [not_null, unique]
+          - name: game
+            tests: [not_null]
+
+      - name: standings
+        description: Per-player final standings for each tournament.
+        columns:
+          - name: tournament_id
+            tests: [not_null]
+          - name: player_username
+            tests: [not_null]
+
+      - name: matches
+        description: Round-by-round pairings and results for each tournament.
+        columns:
+          - name: tournament_id
+            tests: [not_null]
+          - name: round
+            tests: [not_null]

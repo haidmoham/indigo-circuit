@@ -1,0 +1,18 @@
+.env
+__pycache__/
+*.pyc
+*.pyo
+.venv/
+venv/
+dist/
+*.egg-info/
+
+# dbt
+transform/target/
+transform/dbt_packages/
+transform/logs/
+profiles.yml
+
+# misc
+.DS_Store
+*.log

@@ -1,0 +1,49 @@
+{% extends "base.html" %}
+{% block title %}PTCG Scout — Meta Overview{% endblock %}
+
+{% block content %}
+<h2 style="margin-bottom:1.5rem">Meta Overview <span style="color:var(--muted); font-weight:400; font-size:1rem">— last 3 months</span></h2>
+<div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem">
+  <div class="card">
+    <h3 style="margin-bottom:1rem">Archetype Popularity</h3>
+    <div id="chart-popularity"></div>
+  </div>
+  <div class="card">
+    <h3 style="margin-bottom:1rem">Win Rate by Archetype</h3>
+    <div id="chart-winrate"></div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+async function load() {
+  const rows = await fetch('/api/meta').then(r => r.json());
+  const names = rows.map(r => r.DECK_NAME);
+
+  Plotly.newPlot('chart-popularity', [{
+    x: rows.map(r => r.APPEARANCES), y: names,
+    type: 'bar', orientation: 'h',
+    marker: { color: '#e63946' },
+  }], {
+    paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
+    font: { color: '#e8eaf0' },
+    xaxis: { title: 'Tournament appearances' },
+    yaxis: { autorange: 'reversed' },
+    margin: { t: 10, l: 160 },
+  });
+
+  Plotly.newPlot('chart-winrate', [{
+    x: rows.map(r => r.WIN_RATE), y: names,
+    type: 'bar', orientation: 'h',
+    marker: { color: '#457b9d' },
+  }], {
+    paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
+    font: { color: '#e8eaf0' },
+    xaxis: { title: 'Win rate', tickformat: '.0%' },
+    yaxis: { autorange: 'reversed' },
+    margin: { t: 10, l: 160 },
+  });
+}
+
+load();
+{% endblock %}

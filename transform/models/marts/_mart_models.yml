@@ -1,0 +1,38 @@
+version: 2
+
+models:
+  - name: player_tournament_history
+    description: One row per player per tournament. Foundation for all player-level analytics.
+    columns:
+      - name: player_username
+        tests: [not_null]
+      - name: tournament_id
+        tests: [not_null]
+      - name: normalized_placement
+        description: placing / player_count — 0.0 is 1st, 1.0 is last. Used for consistency scoring.
+
+  - name: players
+    description: Career summary per player — one row per unique player_username.
+    columns:
+      - name: player_username
+        tests: [not_null, unique]
+      - name: consistency_score
+        description: >
+          1 minus the standard deviation of normalized_placement across tournaments.
+          Higher = more consistent finishes. Null if only one tournament played.
+
+  - name: player_archetype_history
+    description: Archetype affinity per player — how often they play each deck and how it performs.
+    columns:
+      - name: player_username
+        tests: [not_null]
+      - name: deck_id
+        tests: [not_null]
+
+  - name: player_vs_player
+    description: Head-to-head record between all player pairs who have faced each other.
+    columns:
+      - name: player_username
+        tests: [not_null]
+      - name: opponent_username
+        tests: [not_null]

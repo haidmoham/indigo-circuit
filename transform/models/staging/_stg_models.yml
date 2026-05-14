@@ -1,0 +1,30 @@
+version: 2
+
+models:
+  - name: stg_tournaments
+    description: Cleaned tournament metadata — one row per tournament.
+    columns:
+      - name: tournament_id
+        tests: [not_null, unique]
+      - name: tournament_date
+        tests: [not_null]
+      - name: player_count
+        tests: [not_null]
+
+  - name: stg_standings
+    description: Cleaned player standings — one row per player per tournament.
+    columns:
+      - name: tournament_id
+        tests: [not_null]
+      - name: player_username
+        tests: [not_null]
+      - name: placing
+        tests: [not_null]
+
+  - name: stg_matches
+    description: Cleaned match pairings with winner resolved — one row per match.
+    columns:
+      - name: tournament_id
+        tests: [not_null]
+      - name: round
+        tests: [not_null]

@@ -1,0 +1,108 @@
+{% extends "base.html" %}
+{% block title %}PTCG Scout — {{ username }}{% endblock %}
+
+{% block content %}
+<div id="loading" style="color:var(--muted)">Loading…</div>
+<div id="report" style="display:none">
+  <h1 id="player-name" style="margin-bottom:0.25rem"></h1>
+  <p id="player-meta" style="color:var(--muted); margin-bottom:1.5rem"></p>
+
+  <div class="stat-grid card" style="margin-bottom:1.5rem" id="stats"></div>
+
+  <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; margin-bottom:1.5rem">
+    <div class="card">
+      <h3 style="margin-bottom:1rem">Placement History</h3>
+      <div id="chart-placements"></div>
+    </div>
+    <div class="card">
+      <h3 style="margin-bottom:1rem">Archetype Breakdown</h3>
+      <div id="chart-archetypes"></div>
+    </div>
+  </div>
+
+  <div class="card">
+    <h3 style="margin-bottom:1rem">Recent Tournaments</h3>
+    <table id="history-table" style="width:100%; border-collapse:collapse; font-size:0.9rem"></table>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+const username = "{{ username }}";
+
+async function load() {
+  const data = await fetch(`/api/player/${username}`).then(r => r.json());
+  if (data.error) { document.getElementById('loading').textContent = 'Player not found.'; return; }
+  const { career, history, archetypes } = data;
+
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('report').style.display = '';
+
+  document.getElementById('player-name').textContent = career.PLAYER_NAME || career.PLAYER_USERNAME;
+  document.getElementById('player-meta').textContent =
+    `${career.COUNTRY || '—'} · ${career.TOURNAMENTS_ENTERED} tournaments · active ${career.FIRST_PLAYED?.slice(0,10)} – ${career.LAST_PLAYED?.slice(0,10)}`;
+
+  document.getElementById('stats').innerHTML = [
+    ['Win Rate',    pct(career.WIN_RATE)],
+    ['Avg Place',   career.AVG_PLACEMENT],
+    ['Best Place',  '#' + career.BEST_PLACEMENT],
+    ['Top Cut %',   pct(career.TOP_CUT_RATE)],
+    ['Top 8s',      career.TOP8_FINISHES],
+    ['Consistency', career.CONSISTENCY_SCORE?.toFixed(2) ?? '—'],
+  ].map(([label, value]) => `
+    <div class="stat"><div class="value">${value}</div><div class="label">${label}</div></div>
+  `).join('');
+
+  // placement over time
+  Plotly.newPlot('chart-placements', [{
+    x: history.map(r => r.TOURNAMENT_DATE?.slice(0,10)),
+    y: history.map(r => r.NORMALIZED_PLACEMENT),
+    mode: 'lines+markers',
+    marker: { color: '#e63946' },
+    hovertext: history.map(r => `${r.TOURNAMENT_NAME}<br>#${r.PLACING} of ${r.PLAYER_COUNT}`),
+    hoverinfo: 'text',
+  }], {
+    paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
+    font: { color: '#e8eaf0' },
+    yaxis: { autorange: 'reversed', title: 'Normalized placement (lower = better)' },
+    xaxis: { title: '' },
+    margin: { t: 10 },
+  });
+
+  // archetype pie
+  Plotly.newPlot('chart-archetypes', [{
+    labels: archetypes.map(a => a.DECK_NAME || 'Unknown'),
+    values: archetypes.map(a => a.TIMES_PLAYED),
+    type: 'pie',
+    marker: { colors: ['#e63946','#457b9d','#2a9d8f','#e9c46a','#f4a261','#264653'] },
+    textinfo: 'label+percent',
+    hovertemplate: '%{label}<br>%{value} tournaments<br>Avg place: %{customdata}<extra></extra>',
+    customdata: archetypes.map(a => a.AVG_PLACEMENT),
+  }], {
+    paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
+    font: { color: '#e8eaf0' },
+    showlegend: false,
+    margin: { t: 10 },
+  });
+
+  // history table
+  const thead = '<tr>' + ['Tournament','Date','Format','Placement','Record','Deck'].map(h =>
+    `<th style="text-align:left; padding:0.5rem; border-bottom:1px solid var(--border); color:var(--muted)">${h}</th>`
+  ).join('') + '</tr>';
+  const tbody = history.slice(0, 20).map(r => `
+    <tr>
+      <td style="padding:0.5rem">${r.TOURNAMENT_NAME}</td>
+      <td style="padding:0.5rem; color:var(--muted)">${r.TOURNAMENT_DATE?.slice(0,10)}</td>
+      <td style="padding:0.5rem; color:var(--muted)">${r.FORMAT}</td>
+      <td style="padding:0.5rem">#${r.PLACING} <span style="color:var(--muted)">/ ${r.PLAYER_COUNT}</span></td>
+      <td style="padding:0.5rem">${r.WINS}-${r.LOSSES}-${r.TIES}</td>
+      <td style="padding:0.5rem">${r.DECK_NAME || '—'}</td>
+    </tr>
+  `).join('');
+  document.getElementById('history-table').innerHTML = thead + tbody;
+}
+
+function pct(v) { return v != null ? (v * 100).toFixed(1) + '%' : '—'; }
+
+load();
+{% endblock %}

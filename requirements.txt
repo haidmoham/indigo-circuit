@@ -1,0 +1,6 @@
+dbt-snowflake>=1.8.0
+snowflake-connector-python>=3.0.0
+requests>=2.31.0
+python-dotenv>=1.0.0
+flask>=3.0.0
+plotly>=5.20.0
