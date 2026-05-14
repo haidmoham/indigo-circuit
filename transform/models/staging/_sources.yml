@@ -3,7 +3,7 @@ version: 2
 sources:
   - name: ptcg_raw
     database: PTCG_SCOUTING
-    schema: RAW.PTCG
+    schema: RAW
     tables:
       - name: tournaments
         description: Raw tournament metadata from the Limitless Play API.
@@ -38,3 +38,9 @@ sources:
             tests: [not_null]
           - name: card_name
             tests: [not_null]
+
+      - name: glicko_ratings
+        description: Glicko-2 ratings computed by ingest/glicko.py — one row per player.
+        columns:
+          - name: player_username
+            tests: [not_null, unique]

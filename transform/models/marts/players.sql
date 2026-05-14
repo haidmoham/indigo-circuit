@@ -1,5 +1,9 @@
 with history as (
     select * from {{ ref('player_tournament_history') }}
+),
+
+glicko as (
+    select * from {{ ref('stg_glicko_ratings') }}
 )
 
 select
