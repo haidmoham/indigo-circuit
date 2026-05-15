@@ -1,15 +1,16 @@
--- ATP-style rolling rankings from majors only.
+-- Rolling 52-week rankings. Every result in the window counts in full.
+-- No best-N cap — recency decay naturally devalues older events without
+-- needing an artificial ceiling. Half-life = 6 months.
+--
 -- Rules:
---   1. Rolling 52-week window — results older than 1 year drop off.
---   2. Best-N cap — all ICs + Worlds count in full;
---      best 10 regional/special results (prevents pure volume grinding).
---   3. Recency decay — placement_score multiplied by exp(-1.386 * days_ago / 365).
---      Half-life = 6 months: a win from 6 mo ago is worth 50% of one today.
---      This makes rankings volatile and reflective of current form.
+--   1. Rolling 52-week window — results older than 1 year drop off entirely.
+--   2. All tiers count — Worlds, ICs, Regionals, Specials (tier_weight
+--      already encodes prestige; no separate cap needed).
+--   3. Recency decay — placement_score × exp(-1.386 × days_ago / 365).
+--      A result from 6 months ago is worth 50% of an identical result today.
 -- Champion = rank 1, Elite Four = ranks 2-5.
 
 with windowed as (
-    -- restrict to last 52 weeks
     select *
     from {{ ref('major_player_history') }}
     where tournament_date >= dateadd('week', -52, current_date())
@@ -26,7 +27,6 @@ top_arch as (
             lower(player_name)                                               as player_key,
             deck_name,
             max(deck_sprite)                                                 as deck_sprite,
-            -- decayed arch score so recent deck choice wins ties
             sum(placement_score
                 * exp(-1.386 * datediff('day', tournament_date, current_date()) / 365.0)
             )                                                                as arch_score,
@@ -60,87 +60,34 @@ recent_ids as (
     where rn = 1
 ),
 
--- ICs and Worlds always count in full
-prestige as (
-    select
-        lower(player_name)  as player_key,
-        tournament_id,
-        placement_score,
-        placing,
-        wins, losses,
-        tier,
-        normalized_placement,
-        tournament_date
-    from windowed
-    where tier in ('worlds', 'international')
-),
-
--- Regionals and specials: rank per player, keep best 10
-regional_ranked as (
-    select
-        lower(player_name)  as player_key,
-        tournament_id,
-        placement_score,
-        placing,
-        wins, losses,
-        tier,
-        normalized_placement,
-        tournament_date,
-        row_number() over (
-            partition by lower(player_name)
-            order by placement_score desc
-        )                   as result_rank
-    from windowed
-    where tier in ('regional', 'special')
-),
-
-regional_capped as (
-    select * from regional_ranked where result_rank <= 10
-),
-
-combined as (
-    select player_key, tournament_id, placement_score, placing,
-           wins, losses, tier, normalized_placement, tournament_date
-    from prestige
-    union all
-    select player_key, tournament_id, placement_score, placing,
-           wins, losses, tier, normalized_placement, tournament_date
-    from regional_capped
-),
-
 scored as (
     select
-        player_key,
-        -- restore display name from original table
-        max(mph.player_name)                                    as player_name,
-        max(mph.country)                                        as country,
-        count(distinct c.tournament_id)                         as majors_counted,
-        -- Decayed ATP score: exp(-1.386 * days/365) → 6-month half-life
+        lower(player_name)                                      as player_key,
+        max(player_name)                                        as player_name,
+        max(country)                                            as country,
+        count(distinct tournament_id)                           as majors_counted,
+        -- Decayed ATP score: exp(-1.386 × days/365) → 6-month half-life
         sum(
-            c.placement_score
-            * exp(-1.386 * datediff('day', c.tournament_date, current_date()) / 365.0)
+            placement_score
+            * exp(-1.386 * datediff('day', tournament_date, current_date()) / 365.0)
         )                                                       as atp_score,
-        round(avg(c.normalized_placement), 4)                   as avg_normalized_placement,
+        round(avg(normalized_placement), 4)                     as avg_normalized_placement,
         round(
-            sum(c.wins)::float / nullif(sum(c.wins) + sum(c.losses), 0), 3
+            sum(wins)::float / nullif(sum(wins) + sum(losses), 0), 3
         )                                                       as win_rate,
-        min(c.placing)                                          as best_placing,
-        sum(case when c.placing <= 8  then 1 else 0 end)        as top8s,
-        sum(case when c.placing <= 16 then 1 else 0 end)        as top16s,
-        -- tier-split top 8s for card display (raw counts, not decayed)
-        sum(case when c.placing <= 8 and c.tier = 'worlds'                    then 1 else 0 end) as worlds_top8s,
-        sum(case when c.placing <= 8 and c.tier = 'international'             then 1 else 0 end) as ic_top8s,
-        sum(case when c.placing <= 8 and c.tier in ('regional', 'special')    then 1 else 0 end) as regional_top8s,
-        max(c.tournament_date)                                  as last_played,
-        sum(case when c.tier = 'worlds'        then c.placement_score * exp(-1.386 * datediff('day', c.tournament_date, current_date()) / 365.0) else 0 end) as worlds_score,
-        sum(case when c.tier = 'international' then c.placement_score * exp(-1.386 * datediff('day', c.tournament_date, current_date()) / 365.0) else 0 end) as ic_score,
-        sum(case when c.tier in ('regional', 'special') then c.placement_score * exp(-1.386 * datediff('day', c.tournament_date, current_date()) / 365.0) else 0 end) as regional_score
-    from combined c
-    join {{ ref('major_player_history') }} mph
-      on lower(mph.player_name) = c.player_key
-      and mph.tournament_id = c.tournament_id
-    group by player_key
-    having count(distinct c.tournament_id) >= 2
+        min(placing)                                            as best_placing,
+        sum(case when placing <= 8  then 1 else 0 end)          as top8s,
+        sum(case when placing <= 16 then 1 else 0 end)          as top16s,
+        sum(case when placing <= 8 and tier = 'worlds'                    then 1 else 0 end) as worlds_top8s,
+        sum(case when placing <= 8 and tier = 'international'             then 1 else 0 end) as ic_top8s,
+        sum(case when placing <= 8 and tier in ('regional', 'special')    then 1 else 0 end) as regional_top8s,
+        max(tournament_date)                                    as last_played,
+        sum(case when tier = 'worlds'        then placement_score * exp(-1.386 * datediff('day', tournament_date, current_date()) / 365.0) else 0 end) as worlds_score,
+        sum(case when tier = 'international' then placement_score * exp(-1.386 * datediff('day', tournament_date, current_date()) / 365.0) else 0 end) as ic_score,
+        sum(case when tier in ('regional', 'special') then placement_score * exp(-1.386 * datediff('day', tournament_date, current_date()) / 365.0) else 0 end) as regional_score
+    from windowed
+    group by lower(player_name)
+    having count(distinct tournament_id) >= 2
 ),
 
 ranked_with_arch as (
@@ -157,8 +104,7 @@ ranked_with_arch as (
 final as (
     select
         *,
-        round(atp_score, 1)                                     as atp_score_rounded,
-        row_number() over (order by atp_score desc)             as rank
+        row_number() over (order by atp_score desc) as rank
     from ranked_with_arch
 )
 
@@ -184,7 +130,7 @@ select
     top_deck_name,
     top_deck_sprite,
     case
-        when rank = 1            then 'Champion'
+        when rank = 1             then 'Champion'
         when rank between 2 and 5 then 'Elite Four'
         else null
     end                                      as title
