@@ -42,7 +42,6 @@ const D_GLOW   = 'rgba(229,62,62,0.25)';
 const D_GLOW2  = 'rgba(255,109,0,0.18)';
 
 function demonLink(name) {
-  const safe = JSON.stringify(name).replace(/"/g, '&quot;');
   return `<a href="https://limitlesstcg.com/players?q=${encodeURIComponent(name)}"
               target="_blank" rel="noopener"
               style="color:var(--text);text-decoration:none;font-weight:inherit;
@@ -50,10 +49,7 @@ function demonLink(name) {
                      transition:color 0.15s,border-color 0.15s"
               onmouseover="this.style.color='${D_RED}';this.style.borderColor='${D_RED}'"
               onmouseout="this.style.color='var(--text)';this.style.borderColor='rgba(229,62,62,0.3)'"
-            >${name}</a>` +
-         `<span class="trainer-link ext-link" title="Quick view"
-                onclick="showTrainerCard(${safe})"
-                style="margin-left:0.35rem;font-size:0.68rem">&#9776;</span>`;
+            >${name}</a>`;
 }
 
 function statBox(label, value, color) {
