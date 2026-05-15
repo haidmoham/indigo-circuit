@@ -190,26 +190,7 @@ def search_players():
     if len(q) < 2:
         return jsonify([])
 
-    # Try online PLAYERS mart first; fall back to major player history
-    try:
-        rows = query(
-            f"""
-            SELECT player_username, player_name, country,
-                   tournaments_entered, best_placement
-            FROM PTCG_SCOUTING.{MARTS}.PLAYERS
-            WHERE lower(player_username) LIKE lower(%s)
-               OR lower(player_name)     LIKE lower(%s)
-            ORDER BY tournaments_entered DESC
-            LIMIT 20
-            """,
-            (f"%{q}%", f"%{q}%"),
-        )
-        if rows:
-            return jsonify(rows)
-    except Exception:
-        pass  # fall through to majors search
-
-    # Fallback: search across major tournament players
+    # Majors players only — online players have no profile pages on Limitless
     rows = query(
         f"""
         SELECT
