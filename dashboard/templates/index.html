@@ -3,43 +3,100 @@
 
 {% block content %}
 <div class="search-bar">
-  <input id="q" type="text" placeholder="Search player name or username…" autocomplete="off" />
+  <input id="q" type="text" placeholder="Search player name…" autocomplete="off" autofocus />
 </div>
-<div id="results"></div>
+<div id="results">
+  <div style="color:var(--muted);font-size:0.82rem;padding:0.5rem 0;letter-spacing:0.03em">
+    Search across all major tournament players
+  </div>
+</div>
 {% endblock %}
 
 {% block scripts %}
-const input = document.getElementById('q');
+const input   = document.getElementById('q');
 const results = document.getElementById('results');
-let debounce;
+let debounce, lastQ = '';
+
+const SKELETON = Array(4).fill(0).map(() => `
+  <div class="card" style="margin-bottom:0.75rem;display:flex;align-items:center;
+                            justify-content:space-between;gap:1rem">
+    <div style="flex:1;display:flex;flex-direction:column;gap:0.4rem">
+      <div class="skeleton" style="height:14px;width:45%"></div>
+      <div class="skeleton" style="height:10px;width:28%"></div>
+    </div>
+    <div class="skeleton" style="height:10px;width:18%;flex-shrink:0"></div>
+  </div>`).join('');
 
 input.addEventListener('input', () => {
+  const q = input.value.trim();
   clearTimeout(debounce);
+
+  if (q.length < 2) {
+    results.innerHTML = q.length === 0
+      ? '<div style="color:var(--muted);font-size:0.82rem;padding:0.5rem 0;letter-spacing:0.03em">Search across all major tournament players</div>'
+      : '<div style="color:var(--muted);font-size:0.82rem;padding:0.5rem 0">Keep typing…</div>';
+    return;
+  }
+
+  // Show skeletons immediately while debouncing
+  results.innerHTML = SKELETON;
+
   debounce = setTimeout(async () => {
-    const q = input.value.trim();
-    if (q.length < 2) { results.innerHTML = ''; return; }
+    lastQ = q;
     const rows = await fetch(`/api/search?q=${encodeURIComponent(q)}`).then(r => r.json());
+
+    // Discard stale responses if user kept typing
+    if (input.value.trim() !== lastQ) return;
+
+    if (!rows.length) {
+      results.innerHTML = `
+        <div style="text-align:center;padding:3rem 0;color:var(--muted)">
+          <div style="font-size:2rem;margin-bottom:0.75rem">🔍</div>
+          <div style="font-weight:700;letter-spacing:0.04em">No players found for "${q}"</div>
+          <div style="font-size:0.78rem;margin-top:0.4rem">Try a different spelling or partial name</div>
+        </div>`;
+      return;
+    }
+
     results.innerHTML = rows.map(r => {
-      // Snowflake DictCursor returns uppercase column names
       const displayName = r.PLAYER_NAME || r.player_name || '';
-      const username    = r.PLAYER_USERNAME || r.player_username || '';
-      const playerId    = r.PLAYER_ID || r.player_id || null;
       const entered     = r.TOURNAMENTS_ENTERED ?? r.tournaments_entered ?? '?';
       const best        = r.BEST_PLACEMENT ?? r.best_placement ?? '?';
       const safe        = JSON.stringify(displayName).replace(/"/g, '&quot;');
       return `
-      <div class="card" style="margin-bottom:0.75rem; display:flex; align-items:center; justify-content:space-between; gap:1rem">
-        <div style="display:flex; align-items:center; gap:0.6rem; flex:1; min-width:0">
-          <span class="trainer-link" onclick="showTrainerCard(${safe})"
-                style="font-weight:800; font-size:0.95rem">${displayName}</span>
-          <a href="${limitlesstcg(displayName)}" target="_blank" rel="noopener"
-             class="ext-link" style="flex-shrink:0">&#8599;</a>
+      <a href="/player/${encodeURIComponent(displayName)}"
+         class="card" style="margin-bottom:0.75rem;display:flex;align-items:center;
+                              justify-content:space-between;gap:1rem;
+                              text-decoration:none;color:inherit;
+                              transition:border-color 0.15s"
+         onmouseover="this.style.borderColor='var(--violet)'"
+         onmouseout="this.style.borderColor=''">
+        <div style="display:flex;align-items:center;gap:0.75rem;flex:1;min-width:0">
+          <div>
+            <div style="font-weight:800;font-size:0.95rem">${displayName}</div>
+            <div style="font-size:0.72rem;color:var(--muted);margin-top:0.1rem">
+              ${entered} majors · best #${best}
+            </div>
+          </div>
         </div>
-        <span style="color:var(--muted); font-size:0.78rem; white-space:nowrap; flex-shrink:0">
-          ${entered} majors · best #${best}
-        </span>
-      </div>`;
-    }).join('') || '<p style="color:var(--muted)">No players found.</p>';
-  }, 250);
+        <div style="display:flex;align-items:center;gap:0.5rem;flex-shrink:0">
+          <span class="trainer-link" title="Quick view"
+                onclick="event.preventDefault();event.stopPropagation();showTrainerCard(${safe})"
+                style="font-size:0.72rem;color:var(--muted);border:1px solid var(--border);
+                       border-radius:5px;padding:0.2rem 0.5rem;white-space:nowrap;
+                       transition:color 0.15s,border-color 0.15s"
+                onmouseover="this.style.color='var(--violet)';this.style.borderColor='var(--violet)'"
+                onmouseout="this.style.color='var(--muted)';this.style.borderColor='var(--border)'">
+            Quick View
+          </span>
+          <a href="${limitlesstcg(displayName)}" target="_blank" rel="noopener"
+             class="ext-link" onclick="event.stopPropagation()" style="font-size:0.75rem">&#8599;</a>
+        </div>
+      </a>`;
+    }).join('');
+  }, 200);
 });
+
+// Focus the input on page load
+input.focus();
 {% endblock %}

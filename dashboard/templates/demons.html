@@ -1,0 +1,239 @@
+{% extends "base.html" %}
+{% block title %}Indigo Circuit — Limitless Demons{% endblock %}
+
+{% block content %}
+<div id="loading" class="loading-state">
+  <div class="spinner"></div><span>Summoning demons…</span>
+</div>
+
+<div id="board" style="display:none">
+
+  <!-- Boss -->
+  <div id="boss-section" style="margin-bottom: 3rem"></div>
+
+  <!-- Admins -->
+  <div style="margin-bottom: 3rem">
+    <div class="section-header">
+      <span class="label" style="color:#e53e3e">☠ Admins</span>
+      <div class="line" style="background:linear-gradient(90deg,#e53e3e44,transparent)"></div>
+    </div>
+    <div id="admins" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:1rem"></div>
+  </div>
+
+  <!-- Ace Trainers -->
+  <div>
+    <div class="section-header">
+      <span class="label" style="color:#ff6d00">🔥 Ace Trainers</span>
+      <div class="line" style="background:linear-gradient(90deg,#ff6d0044,transparent)"></div>
+      <span style="font-size:0.65rem;color:var(--muted);font-weight:700;letter-spacing:0.08em;text-transform:uppercase">Top 8 Online Archetypes</span>
+    </div>
+    <div id="ace-trainers" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:0.85rem"></div>
+  </div>
+
+</div>
+{% endblock %}
+
+{% block scripts %}
+// Demon colour constants
+const D_RED    = '#e53e3e';
+const D_FIRE   = '#ff6d00';
+const D_DARK   = 'rgba(229,62,62,0.18)';
+const D_GLOW   = 'rgba(229,62,62,0.25)';
+const D_GLOW2  = 'rgba(255,109,0,0.18)';
+
+function demonLink(name) {
+  const safe = JSON.stringify(name).replace(/"/g, '&quot;');
+  return `<a href="https://limitlesstcg.com/players?q=${encodeURIComponent(name)}"
+              target="_blank" rel="noopener"
+              style="color:var(--text);text-decoration:none;font-weight:inherit;
+                     border-bottom:1px solid rgba(229,62,62,0.3);
+                     transition:color 0.15s,border-color 0.15s"
+              onmouseover="this.style.color='${D_RED}';this.style.borderColor='${D_RED}'"
+              onmouseout="this.style.color='var(--text)';this.style.borderColor='rgba(229,62,62,0.3)'"
+            >${name}</a>` +
+         `<span class="trainer-link ext-link" title="Quick view"
+                onclick="showTrainerCard(${safe})"
+                style="margin-left:0.35rem;font-size:0.68rem">&#9776;</span>`;
+}
+
+function statBox(label, value, color) {
+  return `
+    <div style="text-align:center">
+      <div style="font-size:1.4rem;font-weight:900;color:${color};line-height:1">${value ?? '—'}</div>
+      <div style="font-size:0.62rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.07em;margin-top:0.2rem">${label}</div>
+    </div>`;
+}
+
+async function load() {
+  const [top, aces] = await Promise.all([
+    fetch('/api/online/leaderboard').then(r => r.json()),
+    fetch('/api/online/archetype-aces').then(r => r.json()),
+  ]);
+
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('board').style.display   = '';
+
+  // ── Boss ─────────────────────────────────────────────────────────────────
+  const boss = top[0];
+  if (boss) {
+    const name     = boss.PLAYER_NAME    || boss.player_name    || boss.PLAYER_USERNAME || '';
+    const country  = boss.COUNTRY        || boss.country        || '';
+    const rating   = +(boss.GLICKO_RATING|| boss.glicko_rating  || 0);
+    const rd       = +(boss.GLICKO_RD    || boss.glicko_rd      || 0);
+    const events   = boss.TOURNAMENTS_ENTERED || boss.tournaments_entered || 0;
+    const wr       = boss.WIN_RATE_PCT   || boss.win_rate_pct;
+    const tcPct    = boss.TOP_CUT_PCT    || boss.top_cut_pct;
+    const sprite   = getSprite(null, name);
+
+    document.getElementById('boss-section').innerHTML = `
+      <div style="
+        background: linear-gradient(135deg, #1a0505 0%, #200808 100%);
+        border: 2px solid ${D_RED};
+        border-radius: 16px; padding: 2rem;
+        box-shadow: 0 0 60px ${D_GLOW}, 0 0 0 1px rgba(255,255,255,0.03);
+      ">
+        <div style="display:flex;align-items:center;gap:2rem;flex-wrap:wrap">
+          ${sprite ? `<img src="${sprite}" alt="${name}"
+            style="width:96px;height:96px;object-fit:contain;image-rendering:pixelated;
+                   filter:drop-shadow(0 0 14px ${D_RED}99) saturate(0.6) brightness(0.8);"
+            onerror="this.style.display='none'">` : ''}
+
+          <div style="flex:1;min-width:200px">
+            <div style="margin-bottom:0.5rem;display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap">
+              <span style="background:rgba(229,62,62,0.18);color:${D_RED};
+                border:1px solid rgba(229,62,62,0.45);padding:0.22rem 0.65rem;
+                border-radius:5px;font-size:0.7rem;font-weight:800;
+                letter-spacing:0.08em;text-transform:uppercase;
+                text-shadow:0 0 8px rgba(229,62,62,0.5)">☠ The Boss</span>
+            </div>
+            <h2 style="font-size:2.2rem;font-weight:900;line-height:1.05">
+              ${demonLink(name)}
+            </h2>
+            <p style="color:var(--muted);margin-top:0.3rem;font-size:0.85rem;font-weight:600">
+              ${country ? country + ' · ' : ''}${events} events
+            </p>
+          </div>
+
+          <div style="display:flex;gap:2rem;flex-wrap:wrap;align-items:center">
+            ${statBox('Glicko',   Math.round(rating),     D_RED)}
+            ${statBox('Win Rate', wr != null ? wr + '%' : '—', 'var(--green)')}
+            ${statBox('Top Cut',  tcPct != null ? tcPct + '%' : '—', D_FIRE)}
+          </div>
+        </div>
+
+        <div style="display:flex;align-items:center;gap:0.75rem;
+                    margin-top:1.25rem;padding-top:1rem;
+                    border-top:1px solid rgba(229,62,62,0.12)">
+          <div style="font-size:0.65rem;color:var(--muted);font-weight:700;
+                      text-transform:uppercase;letter-spacing:0.08em">Confidence</div>
+          <div style="flex:1;height:4px;background:rgba(255,255,255,0.07);border-radius:2px;max-width:200px">
+            <div style="width:85%;height:100%;background:${D_RED};border-radius:2px"></div>
+          </div>
+          <div style="font-size:0.72rem;font-weight:700;color:var(--muted)">
+            ±${Math.round(rd)} RD
+          </div>
+        </div>
+      </div>`;
+  }
+
+  // ── Admins ────────────────────────────────────────────────────────────────
+  const admins = top.slice(1, 5);
+  document.getElementById('admins').innerHTML = admins.map(p => {
+    const name    = p.PLAYER_NAME    || p.player_name    || p.PLAYER_USERNAME || '';
+    const country = p.COUNTRY        || p.country        || '';
+    const rating  = +(p.GLICKO_RATING|| p.glicko_rating  || 0);
+    const rd      = +(p.GLICKO_RD    || p.glicko_rd      || 0);
+    const events  = p.TOURNAMENTS_ENTERED || p.tournaments_entered || 0;
+    const wr      = p.WIN_RATE_PCT   || p.win_rate_pct;
+    const tcPct   = p.TOP_CUT_PCT    || p.top_cut_pct;
+    const sprite  = getSprite(null, name);
+
+    return `
+    <div style="
+      background:var(--surface);
+      border:1.5px solid ${D_RED}44;
+      border-left:3px solid ${D_RED};
+      border-radius:14px;padding:1.25rem;
+      box-shadow:0 0 24px rgba(229,62,62,0.12);
+      position:relative;overflow:hidden;
+    ">
+      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.85rem">
+        <span style="background:rgba(229,62,62,0.12);color:${D_RED};
+          border:1px solid rgba(229,62,62,0.35);padding:0.18rem 0.55rem;
+          border-radius:5px;font-size:0.65rem;font-weight:800;
+          letter-spacing:0.08em;text-transform:uppercase">Admin</span>
+        <span style="color:var(--muted);font-size:0.75rem;font-weight:700">${events} events</span>
+      </div>
+
+      <div style="display:flex;align-items:center;gap:0.85rem;margin-bottom:0.85rem">
+        ${sprite ? `<img src="${sprite}" alt="${name}"
+          style="width:56px;height:56px;object-fit:contain;image-rendering:pixelated;flex-shrink:0;
+                 filter:drop-shadow(0 0 6px ${D_RED}55) saturate(0.5) brightness(0.75);"
+          onerror="this.style.display='none'">` : ''}
+        <div>
+          <div style="font-size:1.05rem;font-weight:800;line-height:1.1;margin-bottom:0.15rem">
+            ${demonLink(name)}
+          </div>
+          <div style="color:var(--muted);font-size:0.75rem;margin-top:0.1rem">${country}</div>
+        </div>
+      </div>
+
+      <div style="display:flex;justify-content:space-between;font-size:0.82rem;
+                  padding-top:0.75rem;border-top:1px solid rgba(255,255,255,0.05)">
+        <span style="font-weight:800;color:${D_RED}">${Math.round(rating)} <span style="font-size:0.65rem;color:var(--muted);font-weight:600">±${Math.round(rd)}</span></span>
+        <span style="font-weight:700;color:var(--green)">${wr != null ? wr + '%' : '—'} WR</span>
+        <span style="font-weight:700;color:${D_FIRE}">${tcPct != null ? tcPct + '%' : '—'} TC</span>
+      </div>
+    </div>`;
+  }).join('');
+
+  // ── Ace Trainers ──────────────────────────────────────────────────────────
+  document.getElementById('ace-trainers').innerHTML = aces.map(a => {
+    const deckId   = a.DECK_ID      || a.deck_id      || '';
+    const deckName = a.DECK_NAME    || a.deck_name    || deckId;
+    const name     = a.PLAYER_NAME  || a.player_name  || a.PLAYER_USERNAME || '';
+    const country  = a.COUNTRY      || a.country      || '';
+    const wr       = a.WIN_RATE_PCT || a.win_rate_pct;
+    const played   = a.TIMES_PLAYED || a.times_played || 0;
+    const sprite   = getSprite(null, deckName);
+    const theme    = getTheme({ TOP_DECK_NAME: deckName });
+
+    return `
+    <div style="
+      background:var(--surface);border-radius:12px;padding:1rem;
+      border:1px solid ${D_FIRE}33;
+      border-top:2px solid ${D_FIRE};
+    ">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.6rem">
+        <span style="background:rgba(255,109,0,0.1);color:${D_FIRE};
+          border:1px solid rgba(255,109,0,0.3);padding:0.18rem 0.55rem;
+          border-radius:5px;font-size:0.65rem;font-weight:800;
+          letter-spacing:0.08em;text-transform:uppercase">Ace Trainer</span>
+        <span style="color:var(--muted);font-size:0.7rem;font-weight:700">${played} events</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:0.6rem">
+        ${sprite ? `<img src="${sprite}" alt="${deckName}"
+          style="width:44px;height:44px;object-fit:contain;image-rendering:pixelated;flex-shrink:0;
+                 filter:drop-shadow(0 0 5px ${D_FIRE}55) saturate(0.6) brightness(0.8);"
+          onerror="this.style.display='none'">` : ''}
+        <div>
+          <div style="font-size:0.68rem;font-weight:800;color:${D_FIRE};
+                      text-transform:uppercase;letter-spacing:0.07em;margin-bottom:0.2rem">
+            ${deckName}
+          </div>
+          <div style="font-weight:800;font-size:0.92rem">
+            ${demonLink(name)}
+          </div>
+        </div>
+      </div>
+      <div style="display:flex;gap:1rem;font-size:0.73rem;color:var(--muted);font-weight:600;
+                  margin-top:0.6rem;padding-top:0.5rem;border-top:1px solid rgba(255,255,255,0.05)">
+        <span style="color:var(--green)">${wr != null ? wr + '%' : '—'} WR</span>
+        ${country ? `<span>${country}</span>` : ''}
+      </div>
+    </div>`;
+  }).join('') || '<p style="color:var(--muted)">Not enough data yet.</p>';
+}
+
+load();
+{% endblock %}

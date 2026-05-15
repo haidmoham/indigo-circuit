@@ -1,0 +1,205 @@
+{% extends "base.html" %}
+{% block title %}Indigo Circuit — Tech Scouting{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:flex-end;justify-content:space-between;
+            flex-wrap:wrap;gap:1rem;margin-bottom:1.75rem">
+  <div>
+    <h1 style="font-size:1.6rem;font-weight:900;line-height:1.1">Tech Scouting</h1>
+    <p style="color:var(--muted);font-size:0.8rem;font-weight:600;margin-top:0.25rem;
+              letter-spacing:0.04em;text-transform:uppercase">
+      Card inclusion rates · Limitless online decklists
+    </p>
+  </div>
+  <select id="deck-select"
+    style="background:var(--surface);color:var(--text);border:1px solid var(--border);
+           border-radius:8px;padding:0.4rem 0.75rem;font-size:0.8rem;font-weight:700;
+           font-family:inherit;letter-spacing:0.04em;cursor:pointer;outline:none;
+           text-transform:uppercase;min-width:220px">
+    <option value="">Loading decks…</option>
+  </select>
+</div>
+
+<div id="loading" class="loading-state" style="display:none">
+  <div class="spinner"></div><span>Loading card data…</span>
+</div>
+
+<div id="deck-meta" style="display:none;margin-bottom:1.5rem">
+  <div style="display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap">
+    <div id="deck-sprite-wrap" style="display:none">
+      <img id="deck-sprite" style="width:72px;height:72px;object-fit:contain;
+           image-rendering:pixelated;" onerror="this.parentElement.style.display='none'">
+    </div>
+    <div>
+      <div id="deck-title" style="font-size:1.3rem;font-weight:900"></div>
+      <div id="deck-subtitle" style="font-size:0.75rem;color:var(--muted);font-weight:600;
+           margin-top:0.2rem;letter-spacing:0.04em;text-transform:uppercase"></div>
+    </div>
+  </div>
+</div>
+
+<div id="empty-state" style="text-align:center;padding:4rem 0;color:var(--muted)">
+  <div style="font-size:2.5rem;margin-bottom:0.75rem">🔬</div>
+  <div style="font-weight:700;font-size:1rem;letter-spacing:0.04em">Select a deck above to see its card breakdown</div>
+  <div style="font-size:0.78rem;margin-top:0.4rem">Inclusion rates computed from Limitless online tournament decklists</div>
+</div>
+
+<div id="cards-wrap" style="display:none">
+  <div id="cards-pokemon"  style="margin-bottom:2rem"></div>
+  <div id="cards-trainer"  style="margin-bottom:2rem"></div>
+  <div id="cards-energy"   style="margin-bottom:2rem"></div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+let currentTheme = { c: 'var(--violet)' };
+
+function inclusionColor(pct) {
+  if (pct >= 90) return 'var(--green)';
+  if (pct >= 60) return 'var(--electric)';
+  if (pct >= 35) return 'var(--violet)';
+  return 'var(--muted)';
+}
+
+function renderGroup(title, icon, cards, themeColor) {
+  if (!cards.length) return '';
+
+  const rows = cards.map(c => {
+    const pct      = +(c.INCLUSION_PCT   || c.inclusion_pct   || 0);
+    const copies   = +(c.AVG_COPIES      || c.avg_copies      || 0);
+    const isTech   = c.IS_TECH_CARD      || c.is_tech_card;
+    const name     = c.CARD_NAME         || c.card_name        || '';
+    const set      = c.CARD_SET          || c.card_set         || '';
+    const barColor = inclusionColor(pct);
+
+    return `
+    <tr style="border-bottom:1px solid rgba(255,255,255,0.04);transition:background 0.1s"
+        onmouseover="this.style.background='rgba(255,255,255,0.03)'"
+        onmouseout="this.style.background='transparent'">
+      <td style="padding:0.5rem 0.75rem;font-weight:700;font-size:0.88rem">
+        ${isTech ? `<span style="display:inline-block;background:rgba(255,109,0,0.15);
+          color:#ff6d00;border:1px solid rgba(255,109,0,0.35);border-radius:4px;
+          font-size:0.55rem;font-weight:900;letter-spacing:0.08em;padding:0.1rem 0.35rem;
+          text-transform:uppercase;vertical-align:middle;margin-right:0.4rem">TECH</span>` : ''}${name}
+      </td>
+      <td style="padding:0.5rem 0.75rem;color:var(--muted);font-size:0.72rem;font-weight:600;
+                 white-space:nowrap">${set}</td>
+      <td style="padding:0.5rem 0.75rem;min-width:160px">
+        <div style="display:flex;align-items:center;gap:0.5rem">
+          <div style="flex:1;height:5px;background:rgba(255,255,255,0.07);border-radius:3px">
+            <div style="width:${pct}%;height:100%;background:${barColor};border-radius:3px;
+                        transition:width 0.5s ease"></div>
+          </div>
+          <span style="font-size:0.78rem;font-weight:800;color:${barColor};
+                       min-width:36px;text-align:right">${pct}%</span>
+        </div>
+      </td>
+      <td style="padding:0.5rem 0.75rem;text-align:right;font-size:0.78rem;
+                 color:var(--muted);font-weight:600;white-space:nowrap">
+        ×${copies.toFixed(1)}
+      </td>
+    </tr>`;
+  }).join('');
+
+  return `
+  <div class="card" style="border-top:3px solid ${themeColor};padding:0">
+    <div style="padding:0.85rem 1rem;border-bottom:1px solid var(--border);
+                display:flex;align-items:center;justify-content:space-between">
+      <span style="font-size:0.72rem;font-weight:800;letter-spacing:0.12em;
+                   text-transform:uppercase;color:var(--muted)">${icon} ${title}</span>
+      <span style="font-size:0.68rem;color:var(--muted);font-weight:600">${cards.length} cards</span>
+    </div>
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:0.85rem">
+        <thead>
+          <tr style="color:var(--muted);font-size:0.62rem;font-weight:800;
+                     letter-spacing:0.1em;text-transform:uppercase">
+            <th style="padding:0.4rem 0.75rem;text-align:left">Card</th>
+            <th style="padding:0.4rem 0.75rem;text-align:left">Set</th>
+            <th style="padding:0.4rem 0.75rem;text-align:left;min-width:200px">Inclusion</th>
+            <th style="padding:0.4rem 0.75rem;text-align:right">Avg Copies</th>
+          </tr>
+        </thead>
+        <tbody>${rows}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+async function loadDecks() {
+  const decks = await fetch('/api/tech/decks').then(r => r.json());
+  const sel = document.getElementById('deck-select');
+  sel.innerHTML = '<option value="">— Select a deck —</option>' +
+    decks.map(d => {
+      const id   = d.DECK_ID   || d.deck_id   || '';
+      const name = d.DECK_NAME || d.deck_name || id;
+      const n    = d.TOTAL_LISTS || d.total_lists || 0;
+      return `<option value="${id}">${name || id} (${n} lists)</option>`;
+    }).join('');
+  sel.addEventListener('change', () => {
+    if (sel.value) loadDeck(sel.value, sel.options[sel.selectedIndex].text);
+    else {
+      document.getElementById('cards-wrap').style.display   = 'none';
+      document.getElementById('deck-meta').style.display    = 'none';
+      document.getElementById('empty-state').style.display  = '';
+    }
+  });
+}
+
+async function loadDeck(deckId, label) {
+  document.getElementById('empty-state').style.display  = 'none';
+  document.getElementById('cards-wrap').style.display   = 'none';
+  document.getElementById('deck-meta').style.display    = 'none';
+  document.getElementById('loading').style.display      = 'flex';
+
+  const cards = await fetch(`/api/tech/${encodeURIComponent(deckId)}`).then(r => r.json());
+
+  document.getElementById('loading').style.display = 'none';
+
+  if (!cards.length) {
+    document.getElementById('empty-state').innerHTML = `
+      <div style="font-size:2rem;margin-bottom:0.75rem">📭</div>
+      <div style="font-weight:700">No card data for this deck yet</div>`;
+    document.getElementById('empty-state').style.display = '';
+    return;
+  }
+
+  // Deck header
+  const deckName = label.split(' (')[0].trim();
+  const sprite   = getSprite(null, deckName);
+  const theme    = getTheme({ TOP_DECK_NAME: deckName });
+  currentTheme   = theme;
+
+  const totalLists = cards[0]?.TOTAL_LISTS || cards[0]?.total_lists || 0;
+
+  document.getElementById('deck-title').textContent = deckName;
+  document.getElementById('deck-subtitle').textContent =
+    `${totalLists} decklists analysed`;
+
+  if (sprite) {
+    document.getElementById('deck-sprite').src = sprite;
+    document.getElementById('deck-sprite').style.filter =
+      `drop-shadow(0 0 8px ${theme.c}88)`;
+    document.getElementById('deck-sprite-wrap').style.display = '';
+  } else {
+    document.getElementById('deck-sprite-wrap').style.display = 'none';
+  }
+  document.getElementById('deck-meta').style.display = '';
+
+  // Group by category
+  const pokemon  = cards.filter(c => (c.CARD_CATEGORY || c.card_category) === 'pokemon');
+  const trainers = cards.filter(c => (c.CARD_CATEGORY || c.card_category) === 'trainer');
+  const energy   = cards.filter(c => (c.CARD_CATEGORY || c.card_category) === 'energy');
+
+  document.getElementById('cards-pokemon').innerHTML =
+    renderGroup('Pokémon', '⬡', pokemon, theme.c);
+  document.getElementById('cards-trainer').innerHTML =
+    renderGroup('Trainers', '♠', trainers, theme.c);
+  document.getElementById('cards-energy').innerHTML =
+    renderGroup('Energy', '⚡', energy, theme.c);
+
+  document.getElementById('cards-wrap').style.display = '';
+}
+
+loadDecks();
+{% endblock %}

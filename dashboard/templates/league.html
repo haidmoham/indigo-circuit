@@ -2,8 +2,8 @@
 {% block title %}Indigo Circuit — The League{% endblock %}
 
 {% block content %}
-<div id="loading" style="color:var(--muted); padding: 2rem 0; font-weight: 700; letter-spacing: 0.06em; text-transform: uppercase; font-size: 0.8rem">
-  Loading rankings…
+<div id="loading" class="loading-state">
+  <div class="spinner"></div><span>Loading rankings…</span>
 </div>
 
 <div id="board" style="display:none">
@@ -44,8 +44,16 @@ function statBox(label, value, color) {
 
 function playerLink(name) {
   const safe = JSON.stringify(name).replace(/"/g, '&quot;');
-  return `<span class="trainer-link" onclick="showTrainerCard(${safe})">${name}</span>` +
-         `<a href="${limitlesstcg(name)}" target="_blank" rel="noopener" class="ext-link">&#8599;</a>`;
+  return `<a href="/player/${encodeURIComponent(name)}"
+              style="color:var(--text);text-decoration:none;font-weight:inherit;
+                     border-bottom:1px solid rgba(255,255,255,0.15);
+                     transition:color 0.15s,border-color 0.15s"
+              onmouseover="this.style.color='var(--electric)';this.style.borderColor='var(--electric)'"
+              onmouseout="this.style.color='var(--text)';this.style.borderColor='rgba(255,255,255,0.15)'"
+            >${name}</a>` +
+         `<span class="trainer-link ext-link" title="Quick view"
+                onclick="showTrainerCard(${safe})"
+                style="margin-left:0.35rem;font-size:0.68rem">&#9776;</span>`;
 }
 
 async function load() {

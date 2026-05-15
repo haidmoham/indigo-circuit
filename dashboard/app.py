@@ -142,9 +142,9 @@ def index():
 def search():
     return render_template("index.html")
 
-@app.get("/player/<username>")
-def player_report(username):
-    return render_template("player.html", username=username)
+@app.get("/player/<path:name>")
+def player_report(name):
+    return render_template("player.html", player_name=name)
 
 @app.get("/meta")
 def meta():
@@ -158,6 +158,18 @@ def league():
 @app.get("/leaderboard")
 def leaderboard():
     return render_template("leaderboard.html")
+
+@app.get("/online")
+def online():
+    return render_template("online.html")
+
+@app.get("/tech")
+def tech():
+    return render_template("tech.html")
+
+@app.get("/demons")
+def demons():
+    return render_template("demons.html")
 
 @app.get("/go/<path:name>")
 def limitless_go(name):
@@ -220,38 +232,170 @@ def search_players():
     return jsonify(rows)
 
 
-@app.get("/api/player/<username>")
-def player_stats(username):
-    career = query(
-        f"SELECT * FROM PTCG_SCOUTING.{MARTS}.PLAYERS_ENRICHED WHERE player_username = %s",
-        (username,),
+@app.get("/api/player/<path:name>")
+def player_stats(name):
+    # Seasonal ranking row (ATP score, title, gym leader, etc.)
+    ranking = query(
+        f"""
+        SELECT sr.rank, sr.player_name, sr.player_id, sr.country,
+               sr.majors_counted, sr.win_rate_pct, sr.best_placing,
+               sr.top8s, sr.top16s, sr.atp_score, sr.title,
+               sr.top_deck_name, sr.top_deck_sprite,
+               sr.worlds_top8s, sr.ic_top8s, sr.regional_top8s,
+               sr.last_played, sr.worlds_score, sr.ic_score, sr.regional_score,
+               mgl.archetype AS gym_leader_of
+        FROM PTCG_SCOUTING.{MARTS}.SEASONAL_RANKINGS sr
+        LEFT JOIN PTCG_SCOUTING.{MARTS}.MAJOR_GYM_LEADERS mgl
+          ON lower(sr.player_name) = lower(mgl.player_name)
+          AND mgl.is_gym_leader = TRUE
+        WHERE lower(sr.player_name) = lower(%s)
+        LIMIT 1
+        """,
+        (name,),
     )
-    if not career:
-        return jsonify({"error": "player not found"}), 404
 
+    # Full major history (all tournaments, not just last 52 weeks)
     history = query(
         f"""
         SELECT tournament_name, tournament_date, placing, player_count,
-               normalized_placement, wins, losses, ties, deck_name, format
-        FROM PTCG_SCOUTING.{MARTS}.PLAYER_TOURNAMENT_HISTORY
-        WHERE player_username = %s
+               normalized_placement, wins, losses, deck_name, tier, tournament_id
+        FROM PTCG_SCOUTING.{MARTS}.MAJOR_PLAYER_HISTORY
+        WHERE lower(player_name) = lower(%s)
         ORDER BY tournament_date DESC
         """,
-        (username,),
+        (name,),
     )
 
+    if not history:
+        return jsonify({"error": "player not found"}), 404
+
+    # Archetype breakdown across all history
     archetypes = query(
         f"""
-        SELECT deck_name, times_played, avg_placement, win_rate, archetype_loyalty,
-               first_played, last_played
-        FROM PTCG_SCOUTING.{MARTS}.PLAYER_ARCHETYPE_HISTORY
-        WHERE player_username = %s
+        SELECT deck_name,
+               max(deck_sprite)                                                  AS deck_sprite,
+               count(*)                                                          AS times_played,
+               round(avg(placing), 1)                                            AS avg_placement,
+               round(sum(wins)::float / nullif(sum(wins) + sum(losses), 0), 3)  AS win_rate,
+               min(placing)                                                      AS best_placing,
+               min(tournament_date)                                              AS first_played,
+               max(tournament_date)                                              AS last_played
+        FROM PTCG_SCOUTING.{MARTS}.MAJOR_PLAYER_HISTORY
+        WHERE lower(player_name) = lower(%s)
+          AND deck_name IS NOT NULL
+        GROUP BY deck_name
         ORDER BY times_played DESC
         """,
-        (username,),
+        (name,),
     )
 
-    return jsonify({"career": career[0], "history": history, "archetypes": archetypes})
+    return jsonify({
+        "ranking": ranking[0] if ranking else None,
+        "history":   history,
+        "archetypes": archetypes,
+    })
+
+
+@app.get("/api/online/leaderboard")
+def online_leaderboard():
+    rows = query(
+        f"""
+        SELECT player_username, player_name, country,
+               tournaments_entered, total_wins, total_losses,
+               round(win_rate * 100, 1)          AS win_rate_pct,
+               best_placement, top8_finishes, top_cut_count,
+               round(top_cut_rate * 100, 1)       AS top_cut_pct,
+               round(avg_placement, 1)            AS avg_placement,
+               round(glicko_rating, 0)            AS glicko_rating,
+               round(glicko_rd, 0)                AS glicko_rd,
+               round(glicko_rating_low, 0)        AS glicko_low,
+               round(glicko_rating_high, 0)       AS glicko_high,
+               last_played::date::varchar         AS last_played
+        FROM PTCG_SCOUTING.{MARTS}.PLAYERS_ENRICHED
+        WHERE glicko_rating IS NOT NULL
+          AND tournaments_entered >= 3
+        ORDER BY glicko_rating DESC
+        LIMIT 100
+        """
+    )
+    return jsonify(rows)
+
+
+@app.get("/api/online/archetype-aces")
+def online_archetype_aces():
+    """Top online player per archetype, ranked by win rate (min 3 events with that deck)."""
+    rows = query(
+        f"""
+        WITH ranked AS (
+            SELECT
+                pah.deck_id,
+                pah.deck_name,
+                pah.player_username,
+                COALESCE(pe.player_name, pah.player_username) AS player_name,
+                pe.country,
+                pah.times_played,
+                ROUND(pah.win_rate * 100, 1)    AS win_rate_pct,
+                ROUND(pah.avg_placement, 1)      AS avg_placement,
+                ROUND(pe.glicko_rating, 0)       AS glicko_rating,
+                ROW_NUMBER() OVER (
+                    PARTITION BY pah.deck_id
+                    ORDER BY pah.win_rate DESC NULLS LAST, pah.times_played DESC
+                ) AS rn
+            FROM PTCG_SCOUTING.{MARTS}.PLAYER_ARCHETYPE_HISTORY pah
+            LEFT JOIN PTCG_SCOUTING.{MARTS}.PLAYERS_ENRICHED pe
+              ON pah.player_username = pe.player_username
+            WHERE pah.times_played >= 3
+        )
+        SELECT deck_id, deck_name, player_username, player_name, country,
+               times_played, win_rate_pct, avg_placement, glicko_rating
+        FROM ranked
+        WHERE rn = 1
+        ORDER BY times_played DESC
+        LIMIT 8
+        """
+    )
+    return jsonify(rows)
+
+
+@app.get("/api/tech/decks")
+def tech_decks():
+    rows = query(
+        f"""
+        SELECT cas.deck_id,
+               MAX(pah.deck_name) AS deck_name,
+               MAX(cas.total_lists) AS total_lists
+        FROM PTCG_SCOUTING.{MARTS}.CARD_ARCHETYPE_STATS cas
+        LEFT JOIN PTCG_SCOUTING.{MARTS}.PLAYER_ARCHETYPE_HISTORY pah
+          ON cas.deck_id = pah.deck_id
+        GROUP BY cas.deck_id
+        HAVING MAX(cas.total_lists) >= 3
+        ORDER BY MAX(cas.total_lists) DESC
+        LIMIT 60
+        """
+    )
+    return jsonify(rows)
+
+
+@app.get("/api/tech/<path:deck_id>")
+def tech_cards(deck_id):
+    rows = query(
+        f"""
+        SELECT card_category,
+               card_name,
+               card_set,
+               lists_with_card,
+               total_lists,
+               round(inclusion_rate * 100, 1)       AS inclusion_pct,
+               round(avg_count_when_included, 2)     AS avg_copies,
+               is_tech_card
+        FROM PTCG_SCOUTING.{MARTS}.CARD_ARCHETYPE_STATS
+        WHERE deck_id = %s
+        ORDER BY card_category,
+                 inclusion_rate DESC
+        """,
+        (deck_id,),
+    )
+    return jsonify(rows)
 
 
 @app.get("/api/player/<username>/vs/<opponent>")
@@ -267,15 +411,18 @@ def head_to_head(username, opponent):
     return jsonify(rows[0] if rows else {})
 
 
+def _load_formats():
+    fmts_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'formats.json')
+    with open(fmts_path) as f:
+        return sorted(json.load(f), key=lambda x: x['start'])
+
+
 def _current_format_cutoff():
     """Return (format_name, start_date) for the current Standard format.
     Falls back to the previous format if no majors have occurred yet in the
     newest set — so we never serve an empty meta page.
     """
-    fmts_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'formats.json')
-    with open(fmts_path) as f:
-        fmts = sorted(json.load(f), key=lambda x: x['start'])
-
+    fmts  = _load_formats()
     today = date.today().isoformat()
     active = [x for x in fmts if x['start'] <= today]
     if not active:
@@ -293,21 +440,45 @@ def _current_format_cutoff():
     return use['name'], use['start']
 
 
+@app.get("/api/formats")
+def formats_list():
+    """All known formats, sorted oldest-first, for the meta format selector."""
+    fmts  = _load_formats()
+    today = date.today().isoformat()
+    # Only return formats that have actually started
+    return jsonify([f for f in fmts if f['start'] <= today])
+
+
 @app.get("/api/meta")
 def meta_stats():
-    fmt_name, cutoff = _current_format_cutoff()
+    since_override = request.args.get("since")   # e.g. ?since=2026-04-25
+    if since_override:
+        # Resolve the format name for this cutoff date
+        fmts = _load_formats()
+        match = next((f for f in reversed(fmts) if f['start'] <= since_override), None)
+        fmt_name = match['name'] if match else since_override
+        cutoff   = since_override
+    else:
+        fmt_name, cutoff = _current_format_cutoff()
+
     rows = query(
         f"""
         SELECT deck_name,
                max(deck_sprite)                                                as deck_sprite,
                count(*)                                                        as appearances,
                round(avg(placing), 1)                                          as avg_placement,
-               round(sum(wins)::float / nullif(sum(wins) + sum(losses), 0), 3) as win_rate,
                sum(case when placing <= 8 then 1 else 0 end)                   as top8s,
                round(
                    sum(case when placing <= 8 then 1 else 0 end)::float
                    / nullif(count(*), 0), 3
                )                                                               as top8_rate,
+               -- Day 2 proxy: top ~20 pct of field advances in a standard Swiss Regional.
+               -- player_count * 0.20, floored at 32, is a reasonable threshold.
+               round(
+                   sum(case when placing <= greatest(32, round(player_count * 0.20))
+                            then 1 else 0 end)::float
+                   / nullif(count(*), 0), 3
+               )                                                               as day2_rate,
                min(placing)                                                    as best_placing
         FROM PTCG_SCOUTING.{MARTS}.MAJOR_PLAYER_HISTORY
         WHERE deck_name is not null
@@ -323,10 +494,16 @@ def meta_stats():
 
 @app.get("/api/meta/top-finishes")
 def meta_top_finishes():
-    _, cutoff = _current_format_cutoff()
+    since_override = request.args.get("since")
+    if since_override:
+        cutoff = since_override
+    else:
+        _, cutoff = _current_format_cutoff()
+
     rows = query(
         f"""
-        SELECT deck_name, player_name, placing, tournament_name, tournament_date
+        SELECT deck_name, player_name, player_id, placing,
+               tournament_name, tournament_date, tournament_id
         FROM PTCG_SCOUTING.{MARTS}.MAJOR_PLAYER_HISTORY
         WHERE deck_name IS NOT NULL
           AND placing <= 8
@@ -343,8 +520,10 @@ def meta_top_finishes():
             result[dk] = []
         result[dk].append({
             "player_name":     r.get("PLAYER_NAME")     or r.get("player_name", ""),
+            "player_id":       r.get("PLAYER_ID")       or r.get("player_id"),
             "placing":         r.get("PLACING")         or r.get("placing"),
             "tournament_name": r.get("TOURNAMENT_NAME") or r.get("tournament_name", ""),
+            "tournament_id":   r.get("TOURNAMENT_ID")   or r.get("tournament_id", ""),
         })
     return jsonify(result)
 

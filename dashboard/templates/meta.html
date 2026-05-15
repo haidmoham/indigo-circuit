@@ -2,9 +2,8 @@
 {% block title %}Indigo Circuit — Meta{% endblock %}
 
 {% block content %}
-<div id="loading" style="color:var(--muted);padding:2rem 0;font-weight:700;
-     letter-spacing:0.06em;text-transform:uppercase;font-size:0.8rem">
-  Loading meta…
+<div id="loading" class="loading-state">
+  <div class="spinner"></div><span>Loading meta…</span>
 </div>
 
 <div id="meta-wrap" style="display:none">
@@ -17,7 +16,17 @@
       <p id="format-label" style="color:var(--muted);font-size:0.8rem;font-weight:600;
          margin-top:0.25rem;letter-spacing:0.04em;text-transform:uppercase"></p>
     </div>
-    <div id="meta-summary" style="display:flex;gap:1.5rem;flex-wrap:wrap"></div>
+    <div style="display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap">
+      <!-- Format selector -->
+      <select id="format-select"
+        style="background:var(--surface);color:var(--text);border:1px solid var(--border);
+               border-radius:8px;padding:0.4rem 0.75rem;font-size:0.8rem;font-weight:700;
+               font-family:inherit;letter-spacing:0.04em;cursor:pointer;outline:none;
+               text-transform:uppercase">
+        <option value="">Loading…</option>
+      </select>
+      <div id="meta-summary" style="display:flex;gap:1.5rem;flex-wrap:wrap"></div>
+    </div>
   </div>
 
   <!-- Archetype cards -->
@@ -32,7 +41,7 @@
       <div id="chart-share"></div>
     </div>
     <div class="card">
-      <div class="card-title">Win Rate vs. Popularity</div>
+      <div class="card-title">Day 2 Conversion vs. Popularity</div>
       <div id="chart-bubble"></div>
     </div>
   </div>
@@ -41,10 +50,25 @@
 {% endblock %}
 
 {% block scripts %}
-async function load() {
+// Populate format selector once on page load
+async function initFormatSelector() {
+  const fmts = await fetch('/api/formats').then(r => r.json());
+  const sel  = document.getElementById('format-select');
+  sel.innerHTML = fmts.slice().reverse().map(f => {
+    const d = new Date(f.start + 'T00:00:00');
+    const label = `${f.name} (${d.toLocaleDateString('en-US', { month:'short', year:'numeric' })})`;
+    return `<option value="${f.start}">${label}</option>`;
+  }).join('');
+  // default = current (first option = most recent)
+  sel.value = sel.options[0]?.value || '';
+  sel.addEventListener('change', () => load(sel.value));
+}
+
+async function load(sinceOverride) {
+  const qs = sinceOverride ? `?since=${sinceOverride}` : '';
   const [meta, finishes] = await Promise.all([
-    fetch('/api/meta').then(r => r.json()),
-    fetch('/api/meta/top-finishes').then(r => r.json()),
+    fetch(`/api/meta${qs}`).then(r => r.json()),
+    fetch(`/api/meta/top-finishes${qs}`).then(r => r.json()),
   ]);
 
   const fmt   = meta.format;
@@ -52,6 +76,14 @@ async function load() {
 
   document.getElementById('loading').style.display = 'none';
   document.getElementById('meta-wrap').style.display = '';
+
+  // Sync dropdown to loaded format's since-date
+  const sel = document.getElementById('format-select');
+  if (sel && fmt.since && !sinceOverride) {
+    // Find the option whose value matches the returned cutoff
+    const opt = [...sel.options].find(o => o.value === fmt.since);
+    if (opt) sel.value = fmt.since;
+  }
 
   // Format label
   const sinceDate = new Date(fmt.since + 'T00:00:00');
@@ -61,15 +93,15 @@ async function load() {
 
   // Summary strip
   const totalEntries = decks.reduce((s, d) => s + (d.APPEARANCES || 0), 0);
-  const highestWR    = decks.reduce((best, d) =>
-    (d.WIN_RATE || 0) > (best.WIN_RATE || 0) ? d : best, decks[0]);
+  const mostTop8s    = decks.reduce((best, d) =>
+    (d.TOP8S || 0) > (best.TOP8S || 0) ? d : best, decks[0]);
   const mostPlayed   = decks[0];
 
   document.getElementById('meta-summary').innerHTML = [
-    { label: 'Archetypes', val: decks.length,               color: 'var(--violet)' },
-    { label: 'Field Entries', val: totalEntries.toLocaleString(), color: 'var(--muted)' },
-    { label: 'Most Played',  val: mostPlayed?.DECK_NAME || '—', color: 'var(--electric)' },
-    { label: 'Highest WR',   val: highestWR?.DECK_NAME  || '—', color: 'var(--green)'    },
+    { label: 'Archetypes',   val: decks.length,                    color: 'var(--violet)'   },
+    { label: 'Field Entries',val: totalEntries.toLocaleString(),    color: 'var(--muted)'    },
+    { label: 'Most Played',  val: mostPlayed?.DECK_NAME  || '—',   color: 'var(--electric)' },
+    { label: 'Most Top 8s',  val: mostTop8s?.DECK_NAME   || '—',   color: 'var(--green)'    },
   ].map(({ label, val, color }) => `
     <div style="text-align:right">
       <div style="font-size:0.95rem;font-weight:900;color:${color}">${val}</div>
@@ -87,20 +119,35 @@ async function load() {
 
     const appearances = d.APPEARANCES || 0;
     const metaShare   = totalEntries ? ((appearances / totalEntries) * 100).toFixed(1) : '0.0';
-    const wr          = d.WIN_RATE != null ? (d.WIN_RATE * 100).toFixed(1) : null;
-    const top8Rate    = d.TOP8_RATE != null ? (d.TOP8_RATE * 100).toFixed(1) : null;
+    const day2Rate    = d.DAY2_RATE != null ? (d.DAY2_RATE * 100).toFixed(1) : null;
     const top8s       = d.TOP8S ?? 0;
     const best        = d.BEST_PLACING;
 
-    const topF = (finishes[deckName] || []).slice(0, 6);
+    const topF = (finishes[deckName] || []).slice(0, 8);
     const finisherHtml = topF.length
       ? topF.map(f => {
-          const safe = JSON.stringify(f.player_name).replace(/"/g, '&quot;');
-          const medal = f.placing === 1 ? '🥇' : f.placing === 2 ? '🥈' : f.placing === 3 ? '🥉' : `${f.placing}.`;
-          return `<span style="white-space:nowrap">${medal} <span class="trainer-link"
-            onclick="showTrainerCard(${safe})"
-            style="font-size:0.72rem;font-weight:700">${f.player_name}</span></span>`;
-        }).join('<span style="color:var(--border);margin:0 0.2rem">·</span>')
+          const safe      = JSON.stringify(f.player_name).replace(/"/g, '&quot;');
+          const placeClr  = f.placing === 1 ? 'var(--gold)' : f.placing <= 4 ? 'var(--violet)' : 'var(--muted)';
+          // Limitless Labs tournament standings link — only if we have a tournament_id
+          const labsUrl   = f.tournament_id
+            ? `https://labs.limitlesstcg.com/tournaments/${f.tournament_id}/standings`
+            : null;
+          const extLink   = labsUrl
+            ? `<a href="${labsUrl}" target="_blank" rel="noopener"
+                 title="${f.tournament_name}"
+                 style="color:var(--muted);opacity:0.5;text-decoration:none;font-size:0.6rem;
+                        margin-left:0.15rem;vertical-align:middle"
+                 onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.5'">↗</a>`
+            : '';
+          return `<span style="display:inline-flex;align-items:center;gap:0.2rem;
+                               white-space:nowrap;max-width:100%">
+            <span style="font-size:0.62rem;font-weight:800;color:${placeClr};flex-shrink:0">#${f.placing}</span>
+            <span class="trainer-link" onclick="showTrainerCard(${safe})"
+              style="font-size:0.72rem;font-weight:700;overflow:hidden;text-overflow:ellipsis;
+                     max-width:130px;display:inline-block"
+              title="${f.player_name}">${f.player_name}</span>${extLink}
+          </span>`;
+        }).join('<span style="color:var(--border);margin:0 0.15rem;flex-shrink:0"> · </span>')
       : `<span style="color:var(--muted);font-size:0.72rem">No top 8s yet</span>`;
 
     return `
@@ -139,12 +186,12 @@ async function load() {
       <!-- Stats row -->
       <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.25rem;text-align:center">
         <div>
-          <div style="font-size:1.05rem;font-weight:900;color:var(--green)">${wr != null ? wr + '%' : '—'}</div>
-          <div style="font-size:0.58rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em">Win Rate</div>
+          <div style="font-size:1.05rem;font-weight:900;color:var(--electric)">${appearances}</div>
+          <div style="font-size:0.58rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em">Entries</div>
         </div>
         <div>
-          <div style="font-size:1.05rem;font-weight:900;color:var(--electric)">${top8Rate != null ? top8Rate + '%' : '—'}</div>
-          <div style="font-size:0.58rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em">T8 Conv</div>
+          <div style="font-size:1.05rem;font-weight:900;color:var(--green)">${day2Rate != null ? day2Rate + '%' : '—'}</div>
+          <div style="font-size:0.58rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em">Day 2 Conv</div>
         </div>
         <div>
           <div style="font-size:1.05rem;font-weight:900;color:${theme.c}">${top8s}</div>
@@ -154,7 +201,8 @@ async function load() {
 
       <!-- Top finishers -->
       <div style="border-top:1px solid rgba(255,255,255,0.06);padding-top:0.6rem;
-                  font-size:0.72rem;line-height:1.7;color:var(--muted)">
+                  display:flex;flex-wrap:wrap;align-items:center;
+                  gap:0.15rem 0;row-gap:0.3rem;overflow:hidden;color:var(--muted)">
         ${finisherHtml}
       </div>
     </div>`;
@@ -196,7 +244,7 @@ async function load() {
   Plotly.newPlot('chart-bubble', [{
     type: 'scatter', mode: 'markers+text',
     x: decks.map(d => d.APPEARANCES),
-    y: decks.map(d => d.WIN_RATE != null ? +(d.WIN_RATE * 100).toFixed(1) : null),
+    y: decks.map(d => d.DAY2_RATE != null ? +(d.DAY2_RATE * 100).toFixed(1) : null),
     text: decks.map(d => d.DECK_NAME),
     textposition: 'top center',
     textfont: { size: 9 },
@@ -208,14 +256,14 @@ async function load() {
       opacity: 0.85,
       line: { color: 'rgba(255,255,255,0.15)', width: 1 },
     },
-    hovertemplate: '<b>%{text}</b><br>Entries: %{x}<br>WR: %{y}%<extra></extra>',
+    hovertemplate: '<b>%{text}</b><br>Entries: %{x}<br>Day 2: %{y}%<extra></extra>',
   }], {
     ...plotLayout,
     margin: { t: 8, b: 40, l: 48, r: 16 },
     xaxis: { ...plotLayout.xaxis, title: 'Tournament entries' },
-    yaxis: { ...plotLayout.yaxis, title: 'Win rate %' },
+    yaxis: { ...plotLayout.yaxis, title: 'Day 2 conversion %' },
   }, { displayModeBar: false });
 }
 
-load();
+initFormatSelector().then(() => load());
 {% endblock %}

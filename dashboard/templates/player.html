@@ -1,31 +1,57 @@
 {% extends "base.html" %}
-{% block title %}Indigo Circuit — {{ username }}{% endblock %}
+{% block title %}Indigo Circuit — {{ player_name }}{% endblock %}
 
 {% block content %}
-<div id="loading" style="color:var(--muted)">Loading…</div>
+<div id="loading" class="loading-state">
+  <div class="spinner"></div><span>Loading player…</span>
+</div>
+
 <div id="report" style="display:none">
 
-  <!-- Header -->
-  <div style="display: flex; align-items: flex-start; gap: 1.5rem; margin-bottom: 1.5rem; flex-wrap: wrap">
-    <div style="flex: 1">
-      <h1 id="player-name" style="font-size: 1.8rem; font-weight: 800; margin-bottom: 0.25rem"></h1>
-      <p id="player-meta" style="color:var(--muted); font-size: 0.9rem"></p>
-    </div>
-    <div id="glicko-card" style="display: none" class="card" style="min-width: 220px">
-      <div class="card-title">Glicko-2 Rating</div>
-      <div id="glicko-rating" style="font-size: 2rem; font-weight: 800; color: var(--accent2)"></div>
-      <div id="glicko-range" style="color: var(--muted); font-size: 0.8rem; margin-top: 0.25rem"></div>
-      <div id="glicko-bar" style="margin-top: 0.75rem; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden">
-        <div id="glicko-fill" style="height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); border-radius: 3px;"></div>
+  <!-- Header ---------------------------------------------------------------->
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;
+              gap:1.5rem;margin-bottom:1.75rem;flex-wrap:wrap">
+
+    <div style="display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap">
+      <!-- Deck sprite (top deck) -->
+      <div id="player-sprite-wrap" style="display:none">
+        <img id="player-sprite" style="width:72px;height:72px;object-fit:contain;
+             image-rendering:pixelated;" onerror="this.parentElement.style.display='none'">
       </div>
+      <div>
+        <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;margin-bottom:0.35rem">
+          <h1 id="player-name" style="font-size:1.9rem;font-weight:900;line-height:1"></h1>
+          <span id="player-country" style="font-size:1rem;color:var(--muted)"></span>
+        </div>
+        <!-- Title badges -->
+        <div id="title-badges" style="display:flex;gap:0.4rem;flex-wrap:wrap;margin-bottom:0.4rem"></div>
+        <!-- Rank + last active -->
+        <div id="player-sub" style="font-size:0.78rem;color:var(--muted);font-weight:600;
+             letter-spacing:0.04em;text-transform:uppercase"></div>
+      </div>
+    </div>
+
+    <!-- Limitless link -->
+    <div id="limitless-btn-wrap" style="display:none">
+      <a id="limitless-btn"
+         target="_blank" rel="noopener"
+         style="display:inline-flex;align-items:center;gap:0.4rem;padding:0.45rem 0.85rem;
+                border-radius:8px;border:1px solid var(--border);font-size:0.78rem;font-weight:700;
+                color:var(--text);text-decoration:none;letter-spacing:0.04em;text-transform:uppercase;
+                transition:border-color 0.15s"
+         onmouseover="this.style.borderColor='var(--violet)'"
+         onmouseout="this.style.borderColor='var(--border)'">
+        Limitless ↗
+      </a>
     </div>
   </div>
 
-  <!-- Stat strip -->
-  <div class="card stat-grid" style="margin-bottom: 1.5rem" id="stats"></div>
+  <!-- Stat strip ----------------------------------------------------------->
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));
+              gap:0.75rem;margin-bottom:1.75rem" id="stats"></div>
 
-  <!-- Charts -->
-  <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; margin-bottom:1.5rem">
+  <!-- Charts ---------------------------------------------------------------->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin-bottom:1.75rem">
     <div class="card">
       <div class="card-title">Placement History</div>
       <div id="chart-placements"></div>
@@ -36,123 +62,211 @@
     </div>
   </div>
 
-  <!-- Tournament history -->
+  <!-- Tournament history --------------------------------------------------->
   <div class="card">
-    <div class="card-title">Tournament History</div>
-    <table id="history-table" style="width:100%; border-collapse:collapse; font-size:0.88rem"></table>
+    <div class="card-title">Major Tournament History</div>
+    <div style="overflow-x:auto">
+      <table id="history-table"
+             style="width:100%;border-collapse:collapse;font-size:0.85rem"></table>
+    </div>
   </div>
 
 </div>
 {% endblock %}
 
 {% block scripts %}
-const username = "{{ username }}";
+const PLAYER_NAME = {{ player_name | tojson }};
 
 async function load() {
-  const resp = await fetch(`/api/player/${username}`);
+  const resp = await fetch(`/api/player/${encodeURIComponent(PLAYER_NAME)}`);
   const data = await resp.json();
   if (data.error) {
-    document.getElementById('loading').textContent = 'Player not found.';
+    document.getElementById('loading').innerHTML = '<span style="color:var(--red)">Player not found.</span>';
     return;
   }
-  const { career, history, archetypes } = data;
+  const { ranking: r, history, archetypes } = data;
 
   document.getElementById('loading').style.display = 'none';
   document.getElementById('report').style.display  = '';
 
-  // Header
-  document.getElementById('player-name').textContent = career.PLAYER_NAME || career.PLAYER_USERNAME;
-  document.getElementById('player-meta').textContent =
-    [career.COUNTRY, `${career.TOURNAMENTS_ENTERED} tournaments`,
-     `active ${career.FIRST_PLAYED?.slice(0,10)} – ${career.LAST_PLAYED?.slice(0,10)}`]
-    .filter(Boolean).join(' · ');
+  // ── Header ──────────────────────────────────────────────────────────────
+  const displayName = r?.PLAYER_NAME || PLAYER_NAME;
+  document.getElementById('player-name').textContent = displayName;
 
-  // Glicko card
-  if (career.GLICKO_RATING) {
-    const gc = document.getElementById('glicko-card');
-    gc.style.display = '';
-    document.getElementById('glicko-rating').textContent = Math.round(career.GLICKO_RATING);
-    const lo = Math.round(career.GLICKO_RATING_LOW), hi = Math.round(career.GLICKO_RATING_HIGH);
-    document.getElementById('glicko-range').textContent = `Range ${lo} – ${hi}  ·  ±${Math.round(career.GLICKO_RD)} RD`;
-    // fill bar: map rating 1200-2200 to 0-100%
-    const pct = Math.min(100, Math.max(0, (career.GLICKO_RATING - 1200) / 1000 * 100));
-    document.getElementById('glicko-fill').style.width = pct + '%';
+  if (r?.COUNTRY) {
+    document.getElementById('player-country').textContent = r.COUNTRY;
   }
 
-  // Stats
-  document.getElementById('stats').innerHTML = [
-    ['Win Rate',    pct(career.WIN_RATE)],
-    ['Avg Place',   career.AVG_PLACEMENT],
-    ['Best Place',  '#' + career.BEST_PLACEMENT],
-    ['Top Cut %',   pct(career.TOP_CUT_RATE)],
-    ['Top 8s',      career.TOP8_FINISHES],
-    ['Consistency', career.CONSISTENCY_SCORE?.toFixed(2) ?? '—'],
-  ].map(([label, value]) => `
-    <div class="stat">
-      <div class="value">${value}</div>
-      <div class="label">${label}</div>
-    </div>
-  `).join('');
+  // Deck sprite from top deck
+  const spriteUrl = r?.TOP_DECK_SPRITE ? getSprite(r.TOP_DECK_SPRITE, r.TOP_DECK_NAME) : null;
+  if (spriteUrl) {
+    document.getElementById('player-sprite').src = spriteUrl;
+    document.getElementById('player-sprite-wrap').style.display = '';
+    const theme = getTheme({ TOP_DECK_SPRITE: r.TOP_DECK_SPRITE, TOP_DECK_NAME: r.TOP_DECK_NAME });
+    document.getElementById('player-sprite').style.filter =
+      `drop-shadow(0 0 8px ${theme.c}88)`;
+  }
 
-  // Placement chart
+  // Title badges
+  const badges = [];
+  if (r?.TITLE === 'Champion') {
+    badges.push(`<span style="background:#f59e0b22;color:#f59e0b;border:1px solid #f59e0b44;
+      padding:0.2rem 0.55rem;border-radius:6px;font-size:0.7rem;font-weight:800;
+      letter-spacing:0.07em;text-transform:uppercase">🏆 Champion</span>`);
+  } else if (r?.TITLE === 'Elite Four') {
+    badges.push(`<span style="background:#6366f122;color:#818cf8;border:1px solid #6366f144;
+      padding:0.2rem 0.55rem;border-radius:6px;font-size:0.7rem;font-weight:800;
+      letter-spacing:0.07em;text-transform:uppercase">Elite Four</span>`);
+  }
+  if (r?.GYM_LEADER_OF) {
+    const t = getTheme({ TOP_DECK_NAME: r.GYM_LEADER_OF });
+    badges.push(`<span style="background:${t.c}22;color:${t.c};border:1px solid ${t.c}44;
+      padding:0.2rem 0.55rem;border-radius:6px;font-size:0.7rem;font-weight:800;
+      letter-spacing:0.07em;text-transform:uppercase">⚑ ${r.GYM_LEADER_OF} Gym Leader</span>`);
+  }
+  if (badges.length) {
+    document.getElementById('title-badges').innerHTML = badges.join('');
+  }
+
+  // Sub-line: rank + last active
+  const parts = [];
+  if (r?.RANK) parts.push(`Ranked #${r.RANK} (${r.ATP_SCORE} pts)`);
+  const lastDate = r?.LAST_PLAYED || (history[0]?.TOURNAMENT_DATE?.slice(0,10));
+  if (lastDate) parts.push(`Last active ${lastDate.slice(0,10)}`);
+  document.getElementById('player-sub').textContent = parts.join(' · ');
+
+  // Limitless link — always use name search (ID-based URLs 404 on Limitless)
+  const btn = document.getElementById('limitless-btn');
+  btn.href = `https://limitlesstcg.com/players?q=${encodeURIComponent(displayName)}`;
+  document.getElementById('limitless-btn-wrap').style.display = '';
+
+  // ── Stats strip ─────────────────────────────────────────────────────────
+  const totalMajors = history.length;
+  const winRate  = r?.WIN_RATE_PCT != null
+    ? r.WIN_RATE_PCT.toFixed(1) + '%'
+    : (() => {
+        const wins = history.reduce((s,h) => s + (h.WINS||0), 0);
+        const total = wins + history.reduce((s,h) => s + (h.LOSSES||0), 0);
+        return total ? (wins/total*100).toFixed(1) + '%' : '—';
+      })();
+  const top8s = r?.TOP8S ?? history.filter(h => (h.PLACING||99) <= 8).length;
+
+  document.getElementById('stats').innerHTML = [
+    { label: 'Seasonal Rank', val: r?.RANK ? '#' + r.RANK : '—',          color: 'var(--violet)' },
+    { label: 'ATP Score',     val: r?.ATP_SCORE != null ? r.ATP_SCORE : '—', color: 'var(--electric)' },
+    { label: 'Win Rate',      val: winRate,                                color: 'var(--green)' },
+    { label: 'Best Placing',  val: r?.BEST_PLACING ? '#' + r.BEST_PLACING : '#' + Math.min(...history.map(h => h.PLACING||99)),
+                                                                           color: 'var(--text)' },
+    { label: 'Majors',        val: totalMajors,                            color: 'var(--muted)' },
+    { label: 'Top 8s',        val: top8s,                                  color: 'var(--text)' },
+  ].map(({ label, val, color }) => `
+    <div class="card" style="padding:0.85rem;text-align:center">
+      <div style="font-size:1.3rem;font-weight:900;color:${color}">${val}</div>
+      <div style="font-size:0.62rem;color:var(--muted);text-transform:uppercase;
+                  letter-spacing:0.07em;margin-top:0.2rem">${label}</div>
+    </div>`
+  ).join('');
+
+  // ── Placement history chart ──────────────────────────────────────────────
+  const TIER_COLOR = {
+    worlds:        '#f59e0b',
+    international: '#6366f1',
+    regional:      '#34d399',
+    special:       '#60a5fa',
+  };
+  const chronological = [...history].reverse();
+
   Plotly.newPlot('chart-placements', [{
-    x: history.map(r => r.TOURNAMENT_DATE?.slice(0,10)),
-    y: history.map(r => r.NORMALIZED_PLACEMENT),
+    x:    chronological.map(h => h.TOURNAMENT_DATE?.slice(0,10)),
+    y:    chronological.map(h => h.PLACING),
     mode: 'lines+markers',
-    marker: { color: '#6366f1', size: 7 },
-    line: { color: '#6366f1' },
-    hovertext: history.map(r => `${r.TOURNAMENT_NAME}<br>#${r.PLACING} of ${r.PLAYER_COUNT}`),
+    marker: {
+      color: chronological.map(h => TIER_COLOR[h.TIER] || 'var(--muted)'),
+      size:  chronological.map(h => (h.PLACING||99) <= 8 ? 10 : 7),
+      line:  { color: 'rgba(255,255,255,0.2)', width: 1 },
+    },
+    line:  { color: 'rgba(99,102,241,0.35)', width: 2 },
+    text:  chronological.map(h =>
+      `${h.TOURNAMENT_NAME}<br>#${h.PLACING} / ${h.PLAYER_COUNT}<br>${h.WINS}-${h.LOSSES}`),
     hoverinfo: 'text',
   }], {
     paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
-    font: { color: '#e8eaf0', size: 11 },
-    yaxis: { autorange: 'reversed', title: 'Placement % (lower = better)',
-             gridcolor: '#252840', zerolinecolor: '#252840' },
-    xaxis: { gridcolor: '#252840' },
-    margin: { t: 10, l: 60, r: 10, b: 40 },
+    font: { color: 'var(--text)', family: 'Nunito, sans-serif', size: 11 },
+    yaxis: {
+      autorange: 'reversed', title: 'Placing (lower = better)',
+      gridcolor: 'rgba(255,255,255,0.05)', zerolinecolor: 'rgba(255,255,255,0.1)',
+    },
+    xaxis: { gridcolor: 'rgba(255,255,255,0.05)' },
+    margin: { t: 10, l: 55, r: 10, b: 45 },
+    hoverlabel: { bgcolor: '#1a1640', font: { color: '#fff', size: 12 } },
     showlegend: false,
-  });
+  }, { displayModeBar: false });
 
-  // Archetype pie
-  Plotly.newPlot('chart-archetypes', [{
-    labels: archetypes.map(a => a.DECK_NAME || 'Unknown'),
-    values: archetypes.map(a => a.TIMES_PLAYED),
-    type: 'pie',
-    marker: { colors: ['#6366f1','#f59e0b','#34d399','#f87171','#60a5fa','#a78bfa','#fb923c'] },
-    textinfo: 'label+percent',
-    hovertemplate: '%{label}<br>%{value} events<br>Avg place: %{customdata}<extra></extra>',
-    customdata: archetypes.map(a => a.AVG_PLACEMENT),
-  }], {
-    paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
-    font: { color: '#e8eaf0', size: 11 },
-    showlegend: false,
-    margin: { t: 10, l: 10, r: 10, b: 10 },
-  });
+  // ── Archetype breakdown ──────────────────────────────────────────────────
+  if (archetypes.length) {
+    const arches = archetypes.slice(0, 10).reverse();   // Plotly h-bar reads bottom-up
+    Plotly.newPlot('chart-archetypes', [{
+      type: 'bar', orientation: 'h',
+      x: arches.map(a => a.TIMES_PLAYED),
+      y: arches.map(a => a.DECK_NAME),
+      text: arches.map(a => a.WIN_RATE != null
+        ? (a.WIN_RATE * 100).toFixed(0) + '% WR'
+        : ''),
+      textposition: 'outside',
+      marker: { color: arches.map(a =>
+        getTheme({ TOP_DECK_SPRITE: a.DECK_SPRITE, TOP_DECK_NAME: a.DECK_NAME }).c
+      )},
+      hovertemplate: '<b>%{y}</b><br>%{x} events · %{text}<extra></extra>',
+    }], {
+      paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
+      font: { color: 'var(--text)', family: 'Nunito, sans-serif', size: 11 },
+      xaxis: {
+        title: 'Events played', gridcolor: 'rgba(255,255,255,0.05)',
+        zerolinecolor: 'rgba(255,255,255,0.1)',
+      },
+      yaxis: { gridcolor: 'rgba(255,255,255,0.05)' },
+      margin: { t: 8, l: 130, r: 50, b: 40 },
+      hoverlabel: { bgcolor: '#1a1640', font: { color: '#fff', size: 12 } },
+    }, { displayModeBar: false });
+  } else {
+    document.getElementById('chart-archetypes').innerHTML =
+      `<div style="color:var(--muted);font-size:0.8rem;padding:1rem 0">No archetype data available</div>`;
+  }
 
-  // History table
-  const cols = ['Tournament', 'Date', 'Format', 'Placement', 'Record', 'Deck'];
-  const thead = '<tr>' + cols.map(h =>
-    `<th style="text-align:left; padding:0.5rem 0.75rem; border-bottom:1px solid var(--border); color:var(--muted); font-weight:500; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em">${h}</th>`
-  ).join('') + '</tr>';
+  // ── Tournament history table ────────────────────────────────────────────
+  const TIER_LABEL = {
+    worlds: 'Worlds', international: 'IC', regional: 'Regional', special: 'Special'
+  };
+  const PLACE_STYLE = p =>
+    p === 1      ? 'color:#f59e0b;font-weight:900' :
+    p <= 4       ? 'color:#a78bfa;font-weight:800' :
+    p <= 8       ? 'color:#34d399;font-weight:800' :
+    p <= 16      ? 'color:#60a5fa;font-weight:700' : 'color:var(--muted)';
 
-  const tbody = history.slice(0, 25).map(r => `
-    <tr style="border-bottom: 1px solid var(--border)">
-      <td style="padding:0.5rem 0.75rem">${r.TOURNAMENT_NAME}</td>
-      <td style="padding:0.5rem 0.75rem; color:var(--muted)">${r.TOURNAMENT_DATE?.slice(0,10)}</td>
-      <td style="padding:0.5rem 0.75rem; color:var(--muted)">${r.FORMAT || '—'}</td>
-      <td style="padding:0.5rem 0.75rem">
-        <strong>#${r.PLACING}</strong>
-        <span style="color:var(--muted)"> / ${r.PLAYER_COUNT}</span>
+  const thead = `<tr>${['Tournament','Date','Tier','Place','Field','Record','Deck'].map(h =>
+    `<th style="text-align:left;padding:0.45rem 0.75rem;border-bottom:1px solid var(--border);
+               color:var(--muted);font-weight:600;font-size:0.7rem;text-transform:uppercase;
+               letter-spacing:0.06em;white-space:nowrap">${h}</th>`
+  ).join('')}</tr>`;
+
+  const tbody = history.map(h => `
+    <tr style="border-bottom:1px solid rgba(255,255,255,0.04)">
+      <td style="padding:0.45rem 0.75rem;font-weight:600">${h.TOURNAMENT_NAME || '—'}</td>
+      <td style="padding:0.45rem 0.75rem;color:var(--muted);white-space:nowrap">${h.TOURNAMENT_DATE?.slice(0,10) || '—'}</td>
+      <td style="padding:0.45rem 0.75rem">
+        <span style="font-size:0.7rem;color:${TIER_COLOR[h.TIER] || 'var(--muted)'};
+               font-weight:700;text-transform:uppercase;letter-spacing:0.05em">
+          ${TIER_LABEL[h.TIER] || h.TIER || '—'}
+        </span>
       </td>
-      <td style="padding:0.5rem 0.75rem">${r.WINS}-${r.LOSSES}-${r.TIES}</td>
-      <td style="padding:0.5rem 0.75rem; color:var(--accent2)">${r.DECK_NAME || '—'}</td>
-    </tr>
-  `).join('');
+      <td style="padding:0.45rem 0.75rem;${PLACE_STYLE(h.PLACING)}">#${h.PLACING ?? '—'}</td>
+      <td style="padding:0.45rem 0.75rem;color:var(--muted)">${h.PLAYER_COUNT ?? '—'}</td>
+      <td style="padding:0.45rem 0.75rem;white-space:nowrap">${h.WINS ?? 0}-${h.LOSSES ?? 0}</td>
+      <td style="padding:0.45rem 0.75rem;color:var(--electric);font-size:0.82rem">${h.DECK_NAME || '—'}</td>
+    </tr>`).join('');
 
   document.getElementById('history-table').innerHTML = thead + tbody;
 }
-
-function pct(v) { return v != null ? (v * 100).toFixed(1) + '%' : '—'; }
 
 load();
 {% endblock %}

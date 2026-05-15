@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}Indigo Circuit — Online Circuit{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:flex-start;justify-content:space-between;
+            gap:1rem;margin-bottom:1.75rem;flex-wrap:wrap">
+  <div>
+    <h1 style="font-size:1.6rem;font-weight:900;line-height:1.1">Online Circuit</h1>
+    <p style="color:var(--muted);font-size:0.8rem;font-weight:600;margin-top:0.25rem;
+              letter-spacing:0.04em;text-transform:uppercase">
+      Glicko-2 ladder · Limitless online events
+    </p>
+  </div>
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;
+              padding:0.65rem 1rem;font-size:0.72rem;color:var(--muted);font-weight:600;
+              max-width:320px;line-height:1.5">
+    Ranked by Glicko-2 rating across all Limitless online events.
+    ± shows rating deviation — lower means more games played and higher confidence.
+    Minimum 3 events to appear.
+  </div>
+</div>
+
+<div id="loading" class="loading-state">
+  <div class="spinner"></div><span>Loading online rankings…</span>
+</div>
+
+<div id="table-wrap" style="display:none;overflow-x:auto">
+  <table style="width:100%;border-collapse:collapse;font-size:0.85rem">
+    <thead>
+      <tr style="border-bottom:2px solid var(--border);color:var(--muted);
+                 font-size:0.65rem;font-weight:800;letter-spacing:0.1em;text-transform:uppercase">
+        <th style="padding:0.6rem 0.75rem;text-align:right;width:2.5rem">#</th>
+        <th style="padding:0.6rem 0.75rem;text-align:left">Player</th>
+        <th style="padding:0.6rem 0.75rem;text-align:left">Country</th>
+        <th style="padding:0.6rem 0.75rem;text-align:right">Rating</th>
+        <th style="padding:0.6rem 0.75rem;text-align:left;min-width:140px">Confidence</th>
+        <th style="padding:0.6rem 0.75rem;text-align:right">Events</th>
+        <th style="padding:0.6rem 0.75rem;text-align:right">Win%</th>
+        <th style="padding:0.6rem 0.75rem;text-align:right">Top Cut%</th>
+        <th style="padding:0.6rem 0.75rem;text-align:right">Best</th>
+      </tr>
+    </thead>
+    <tbody id="rank-body"></tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+async function load() {
+  const rows = await fetch('/api/online/leaderboard').then(r => r.json());
+
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('table-wrap').style.display = '';
+
+  const tbody = document.getElementById('rank-body');
+
+  // Find min/max rating for normalising the confidence bar
+  const ratings = rows.map(p => +(p.GLICKO_RATING || p.glicko_rating || 0));
+  const maxRating = Math.max(...ratings);
+  const minRating = Math.min(...ratings);
+  const range = maxRating - minRating || 1;
+
+  tbody.innerHTML = rows.map((p, i) => {
+    const rank      = i + 1;
+    const name      = p.PLAYER_NAME      || p.player_name      || p.PLAYER_USERNAME || '';
+    const username  = p.PLAYER_USERNAME  || p.player_username  || '';
+    const country   = p.COUNTRY          || p.country          || '';
+    const rating    = +(p.GLICKO_RATING  || p.glicko_rating    || 0);
+    const rd        = +(p.GLICKO_RD      || p.glicko_rd        || 0);
+    const low       = +(p.GLICKO_LOW     || p.glicko_low       || rating - rd * 2);
+    const high      = +(p.GLICKO_HIGH    || p.glicko_high      || rating + rd * 2);
+    const events    = p.TOURNAMENTS_ENTERED || p.tournaments_entered || 0;
+    const wr        = p.WIN_RATE_PCT     || p.win_rate_pct;
+    const tcPct     = p.TOP_CUT_PCT      || p.top_cut_pct;
+    const best      = p.BEST_PLACEMENT   || p.best_placement;
+
+    const rankColor  = rank === 1 ? 'var(--gold)' : rank <= 3 ? 'var(--violet)' : 'var(--muted)';
+    const rankWeight = rank <= 3 ? '900' : '700';
+
+    // Rating confidence bar: fill width = normalised rating within visible range
+    const fillPct = Math.max(5, Math.round(((rating - minRating) / range) * 100));
+    // RD indicator: lower RD = more confident = brighter colour
+    const rdColor = rd < 60 ? 'var(--green)' : rd < 100 ? 'var(--electric)' : 'var(--muted)';
+
+    // Colour the rating itself by approximate tier
+    const ratingColor = rating >= 1700 ? 'var(--gold)'
+                      : rating >= 1600 ? 'var(--violet)'
+                      : rating >= 1500 ? 'var(--electric)'
+                      : 'var(--muted)';
+
+    const rowBg = rank === 1 ? 'background:rgba(255,171,0,0.05)'
+                : rank <= 3  ? 'background:rgba(92,53,232,0.05)' : '';
+
+    const displayName = name || username;
+    const safe = JSON.stringify(displayName).replace(/"/g, '&quot;');
+
+    return `
+    <tr style="border-bottom:1px solid rgba(255,255,255,0.05);transition:background 0.12s;${rowBg}"
+        onmouseover="this.style.background='rgba(255,255,255,0.04)'"
+        onmouseout="this.style.background='${rank===1?'rgba(255,171,0,0.05)':rank<=3?'rgba(92,53,232,0.05)':'transparent'}'">
+      <td style="padding:0.65rem 0.75rem;text-align:right">
+        <span style="font-size:0.9rem;font-weight:${rankWeight};color:${rankColor}">${rank}</span>
+      </td>
+      <td style="padding:0.65rem 0.75rem">
+        <div style="font-weight:800;font-size:0.9rem">${displayName}</div>
+        ${username && username !== displayName
+          ? `<div style="font-size:0.7rem;color:var(--muted);margin-top:0.1rem">@${username}</div>` : ''}
+      </td>
+      <td style="padding:0.65rem 0.75rem;color:var(--muted);font-size:0.8rem;font-weight:600">${country}</td>
+      <td style="padding:0.65rem 0.75rem;text-align:right">
+        <span style="font-size:1rem;font-weight:900;color:${ratingColor}">${Math.round(rating)}</span>
+        <span style="font-size:0.65rem;color:${rdColor};margin-left:0.25rem;font-weight:700">±${Math.round(rd)}</span>
+      </td>
+      <td style="padding:0.65rem 0.75rem">
+        <div style="display:flex;align-items:center;gap:0.5rem">
+          <div style="flex:1;height:4px;background:rgba(255,255,255,0.07);border-radius:2px;min-width:80px">
+            <div style="width:${fillPct}%;height:100%;background:${ratingColor};border-radius:2px;
+                        transition:width 0.4s ease"></div>
+          </div>
+          <span style="font-size:0.65rem;color:var(--muted);white-space:nowrap">${Math.round(low)}–${Math.round(high)}</span>
+        </div>
+      </td>
+      <td style="padding:0.65rem 0.75rem;text-align:right;color:var(--muted);font-weight:700">${events}</td>
+      <td style="padding:0.65rem 0.75rem;text-align:right;font-weight:700;color:var(--green)">
+        ${wr != null ? wr + '%' : '—'}
+      </td>
+      <td style="padding:0.65rem 0.75rem;text-align:right;font-weight:700;color:var(--electric)">
+        ${tcPct != null ? tcPct + '%' : '—'}
+      </td>
+      <td style="padding:0.65rem 0.75rem;text-align:right;font-weight:700;color:var(--muted)">
+        ${best != null ? '#' + best : '—'}
+      </td>
+    </tr>`;
+  }).join('');
+}
+
+load();
+{% endblock %}

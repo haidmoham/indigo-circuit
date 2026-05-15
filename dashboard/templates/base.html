@@ -159,6 +159,54 @@
       text-decoration: none; vertical-align: super;
     }
     .ext-link:hover { color: var(--text); }
+
+    /* ── Loading bar ────────────────────────────────────────────────── */
+    #global-loader {
+      position: fixed; top: 0; left: 0; right: 0; height: 1px; z-index: 9999;
+      background: var(--violet);
+      transform: scaleX(0); transform-origin: left;
+      opacity: 0; pointer-events: none;
+      transition: opacity 0.2s;
+    }
+    #global-loader.loading {
+      animation: loader-slide 2.4s ease-in-out infinite;
+      transform: scaleX(1); opacity: 0.45;
+    }
+    #global-loader.done { transform: scaleX(1); opacity: 0; transition: opacity 0.4s 0.1s; }
+    @keyframes loader-slide {
+      0%   { transform: scaleX(0.1); transform-origin: left; }
+      50%  { transform: scaleX(0.85); transform-origin: left; }
+      100% { transform: scaleX(0.1); transform-origin: left; }
+    }
+
+    /* ── Skeleton shimmer ───────────────────────────────────────────── */
+    @keyframes shimmer {
+      0%   { background-position: -400px 0; }
+      100% { background-position:  400px 0; }
+    }
+    .skeleton {
+      background: linear-gradient(90deg,
+        var(--surface2) 25%, rgba(255,255,255,0.07) 50%, var(--surface2) 75%);
+      background-size: 400px 100%;
+      animation: shimmer 1.4s ease-in-out infinite;
+      border-radius: 6px;
+    }
+
+    /* ── Spinner ────────────────────────────────────────────────────── */
+    @keyframes spin { to { transform: rotate(360deg); } }
+    .spinner {
+      display: inline-block; width: 18px; height: 18px;
+      border: 2px solid var(--border); border-top-color: var(--violet);
+      border-radius: 50%; animation: spin 0.65s linear infinite;
+      vertical-align: middle; flex-shrink: 0;
+    }
+
+    /* ── Loading state ──────────────────────────────────────────────── */
+    .loading-state {
+      display: flex; align-items: center; gap: 0.6rem;
+      color: var(--muted); font-weight: 700; font-size: 0.8rem;
+      letter-spacing: 0.06em; text-transform: uppercase; padding: 2rem 0;
+    }
   </style>
 
   <script>
@@ -246,6 +294,32 @@
     function limitlesstcg(name) {
       return `https://limitlesstcg.com/players?q=${encodeURIComponent(name)}`;
     }
+
+    // ── Global loading bar ───────────────────────────────────────────────
+    let _loaderCount = 0;
+    function _startLoad() {
+      _loaderCount++;
+      const el = document.getElementById('global-loader');
+      if (el) { el.classList.remove('done'); el.classList.add('loading'); }
+    }
+    function _endLoad() {
+      _loaderCount = Math.max(0, _loaderCount - 1);
+      if (_loaderCount > 0) return;
+      const el = document.getElementById('global-loader');
+      if (!el) return;
+      el.classList.remove('loading');
+      el.classList.add('done');
+      setTimeout(() => el.classList.remove('done'), 400);
+    }
+
+    // Wrap window.fetch to auto-show/hide the bar
+    (function () {
+      const _orig = window.fetch.bind(window);
+      window.fetch = function (...args) {
+        _startLoad();
+        return _orig(...args).finally(_endLoad);
+      };
+    })();
 
     // ── Trainer Card modal ───────────────────────────────────────────────
     function _cardTierStyle(title) {
@@ -358,14 +432,22 @@
             <div style="font-size:0.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.07em;margin-top:0.1rem">Worlds T8</div>
           </div>
         </div>
-        <div style="text-align:center">
+        <div style="display:flex;gap:0.5rem;justify-content:center;flex-wrap:wrap">
+          <a href="/player/${encodeURIComponent(name)}"
+             style="font-size:0.75rem;font-weight:700;color:var(--violet);text-decoration:none;
+                    background:rgba(99,102,241,0.12);border:1px solid rgba(99,102,241,0.3);
+                    border-radius:6px;padding:0.35rem 0.75rem;transition:background 0.15s;"
+             onmouseover="this.style.background='rgba(99,102,241,0.22)'"
+             onmouseout="this.style.background='rgba(99,102,241,0.12)'">
+            View Profile
+          </a>
           <a href="${limitlesstcg(name)}" target="_blank" rel="noopener"
              style="font-size:0.75rem;font-weight:700;color:var(--muted);text-decoration:none;
                     border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:0.35rem 0.75rem;
                     transition:color 0.15s,border-color 0.15s;"
              onmouseover="this.style.color='var(--text)';this.style.borderColor='rgba(255,255,255,0.3)'"
              onmouseout="this.style.color='var(--muted)';this.style.borderColor='rgba(255,255,255,0.12)'">
-            &#8599; View on Limitless TCG
+            &#8599; Limitless TCG
           </a>
         </div>`;
     }
@@ -413,11 +495,15 @@
   </script>
 </head>
 <body>
+  <div id="global-loader"></div>
   <nav>
     <a class="logo" href="/">INDIGO <span>CIRCUIT</span></a>
     <a href="/">The League</a>
+    <a href="/demons">Demons</a>
     <a href="/leaderboard">Rankings</a>
     <a href="/meta">Meta</a>
+    <a href="/tech">Tech</a>
+    <a href="/online">Online</a>
     <a href="/search">Search</a>
   </nav>
   <main>{% block content %}{% endblock %}</main>
