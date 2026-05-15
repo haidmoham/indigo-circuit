@@ -42,7 +42,8 @@ arch_stats as (
         round(
             sum(wins)::float / nullif(sum(wins) + sum(losses), 0), 3
         )                                                       as win_rate,
-        max(tournament_date)                                    as last_played
+        max(tournament_date)                                    as last_played,
+        max_by(player_id, tournament_date)                      as player_id
     from windowed
     where deck_name in (select deck_name from top_archetypes)
     group by lower(player_name), deck_name
@@ -71,6 +72,7 @@ select
     deck_id,
     deck_sprite,
     player_name,
+    player_id,
     archetype_rank,
     archetype_rank = 1                       as is_gym_leader,
     tournament_count,

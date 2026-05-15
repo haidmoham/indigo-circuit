@@ -43,6 +43,23 @@ top_arch as (
     where rn = 1
 ),
 
+-- Most recent player_id per player (canonical Limitless account link)
+recent_ids as (
+    select player_key, player_id
+    from (
+        select
+            lower(player_name) as player_key,
+            player_id,
+            row_number() over (
+                partition by lower(player_name)
+                order by tournament_date desc
+            ) as rn
+        from {{ ref('major_player_history') }}
+        where player_id is not null
+    )
+    where rn = 1
+),
+
 -- ICs and Worlds always count in full
 prestige as (
     select
@@ -130,9 +147,11 @@ ranked_with_arch as (
     select
         s.*,
         ta.top_deck_name,
-        ta.top_deck_sprite
+        ta.top_deck_sprite,
+        ri.player_id
     from scored s
-    left join top_arch ta on ta.player_key = s.player_key
+    left join top_arch ta   on ta.player_key = s.player_key
+    left join recent_ids ri on ri.player_key = s.player_key
 ),
 
 final as (
@@ -146,6 +165,7 @@ final as (
 select
     rank,
     player_name,
+    player_id,
     country,
     majors_counted,
     round(win_rate * 100, 1)                 as win_rate_pct,

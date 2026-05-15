@@ -91,7 +91,7 @@ async function load() {
       <td style="padding:0.65rem 0.75rem">
         <span class="trainer-link" onclick="showTrainerCard(${JSON.stringify(name).replace(/"/g,'&quot;')})"
               style="font-weight:800;font-size:0.9rem">${name}</span>
-        <a href="${limitlesstcg(name)}" target="_blank" rel="noopener" class="ext-link">&#8599;</a>
+        <a href="${limitlesstcg(name, p.PLAYER_ID)}" target="_blank" rel="noopener" class="ext-link">&#8599;</a>
       </td>
       <td style="padding:0.65rem 0.75rem; color:var(--muted); font-size:0.8rem; font-weight:600">${country}</td>
       <td style="padding:0.65rem 0.75rem">

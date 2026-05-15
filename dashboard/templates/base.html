@@ -243,7 +243,8 @@
       return { c: '#6c47f5', g: 'rgba(108,71,245,0.25)', label: '' };
     }
 
-    function limitlesstcg(name) {
+    function limitlesstcg(name, id) {
+      if (id) return `https://limitlesstcg.com/players/${id}`;
       return `https://limitlesstcg.com/players?q=${encodeURIComponent(name)}`;
     }
 
@@ -294,6 +295,7 @@
       const tier  = _cardTierStyle(title);
 
       const gymLeaderOf = p.GYM_LEADER_OF || p.gym_leader_of || '';
+      const playerId = p.PLAYER_ID || p.player_id || null;
       const titleBadge = [
         title
           ? (title.toLowerCase().includes('champion')
@@ -358,7 +360,7 @@
           </div>
         </div>
         <div style="text-align:center">
-          <a href="${limitlesstcg(name)}" target="_blank" rel="noopener"
+          <a href="${limitlesstcg(name, playerId)}" target="_blank" rel="noopener"
              style="font-size:0.75rem;font-weight:700;color:var(--muted);text-decoration:none;
                     border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:0.35rem 0.75rem;
                     transition:color 0.15s,border-color 0.15s;"

@@ -100,9 +100,12 @@ def search_players():
             max(player_name)                AS player_name,
             max(country)                    AS country,
             count(distinct tournament_id)   AS tournaments_entered,
-            min(placing)                    AS best_placement
+            min(placing)                    AS best_placement,
+            -- most recent player_id as canonical Limitless profile link
+            max_by(player_id, tournament_date) AS player_id
         FROM PTCG_SCOUTING.{MARTS}.MAJOR_PLAYER_HISTORY
         WHERE lower(player_name) LIKE lower(%s)
+          AND player_id IS NOT NULL
         GROUP BY lower(player_name)
         ORDER BY count(distinct tournament_id) DESC
         LIMIT 20
@@ -185,7 +188,7 @@ def leaderboard_data():
     # Rankings from majors only — ATP-style seasonal points with gym leader join
     rows = query(
         f"""
-        SELECT sr.rank, sr.player_name, sr.country,
+        SELECT sr.rank, sr.player_name, sr.player_id, sr.country,
                sr.majors_counted, sr.win_rate_pct, sr.best_placing,
                sr.top8s, sr.top16s, sr.worlds_top8s, sr.ic_top8s, sr.regional_top8s,
                sr.atp_score, sr.avg_placement_pct,
@@ -208,7 +211,7 @@ def leaderboard_data():
 def player_card(name):
     rows = query(
         f"""
-        SELECT sr.rank, sr.player_name, sr.country, sr.majors_counted, sr.win_rate_pct,
+        SELECT sr.rank, sr.player_name, sr.player_id, sr.country, sr.majors_counted, sr.win_rate_pct,
                sr.best_placing, sr.top8s, sr.atp_score, sr.title,
                sr.top_deck_name, sr.top_deck_sprite,
                sr.worlds_top8s, sr.ic_top8s, sr.regional_top8s,
@@ -232,7 +235,7 @@ def gym_leaders_data():
     # Gym Leaders from majors only
     rows = query(
         f"""
-        SELECT archetype, deck_sprite, player_name,
+        SELECT archetype, deck_sprite, player_name, player_id,
                tournament_count, win_rate_pct, gym_leader_score, last_played
         FROM PTCG_SCOUTING.{MARTS}.MAJOR_GYM_LEADERS
         WHERE is_gym_leader = TRUE
