@@ -224,7 +224,7 @@
     }
   </style>
 
-  <link id="favicon" rel="icon" type="image/png" sizes="32x32" href="data:,">
+  <link rel="icon" type="image/png" href="/static/favicon.png">
 
   <script>
     // ── Shared sprite / theme helpers ────────────────────────────────────
@@ -543,50 +543,6 @@
     document.addEventListener('keydown', function(e) {
       if (e.key === 'Escape') closeTrainerCard();
     });
-  </script>
-  <script>
-    // ── Rotating favicon — sprite of the most recent major winner ────────
-    (async function () {
-      try {
-        const data = await fetch('/api/favicon-deck').then(r => r.json());
-        if (!data.deck_name) return;
-
-        const spriteUrl = getSprite(data.deck_sprite, data.deck_name);
-        if (!spriteUrl) return;
-
-        const img = new Image();
-        img.crossOrigin = 'anonymous';
-        img.onload = () => {
-          const SIZE = 32;
-          const canvas = document.createElement('canvas');
-          canvas.width  = SIZE;
-          canvas.height = SIZE;
-          const ctx = canvas.getContext('2d');
-          const link  = document.getElementById('favicon');
-          let   angle = 0;
-
-          // One full rotation every ~8 seconds at 60fps
-          const SPEED = (2 * Math.PI) / (8 * 60);
-
-          function frame() {
-            ctx.clearRect(0, 0, SIZE, SIZE);
-            ctx.save();
-            ctx.translate(SIZE / 2, SIZE / 2);
-            ctx.rotate(angle);
-            // Draw with slight pixel-art scaling — keep it crisp
-            ctx.imageSmoothingEnabled = false;
-            ctx.drawImage(img, -SIZE / 2, -SIZE / 2, SIZE, SIZE);
-            ctx.restore();
-            link.href = canvas.toDataURL('image/png');
-            angle = (angle + SPEED) % (2 * Math.PI);
-            requestAnimationFrame(frame);
-          }
-          frame();
-        };
-        img.onerror = () => {};   // silently fail — it's an easter egg
-        img.src = spriteUrl;
-      } catch (_) {}
-    })();
   </script>
 </head>
 <body>

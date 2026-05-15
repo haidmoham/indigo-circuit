@@ -277,28 +277,6 @@ def player_stats(name):
     })
 
 
-@app.get("/api/favicon-deck")
-def favicon_deck():
-    """Most recent major tournament winner's deck — used for the rotating favicon."""
-    rows = query(
-        f"""
-        SELECT deck_name, deck_sprite
-        FROM PTCG_SCOUTING.{MARTS}.MAJOR_PLAYER_HISTORY
-        WHERE placing = 1
-          AND deck_name IS NOT NULL
-        ORDER BY tournament_date DESC
-        LIMIT 1
-        """
-    )
-    if not rows:
-        return jsonify({})
-    r = rows[0]
-    return jsonify({
-        "deck_name":   r.get("DECK_NAME")   or r.get("deck_name",   ""),
-        "deck_sprite": r.get("DECK_SPRITE") or r.get("deck_sprite"),
-    })
-
-
 @app.get("/api/online/leaderboard")
 def online_leaderboard():
     rows = query(
