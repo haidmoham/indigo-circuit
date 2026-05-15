@@ -758,44 +758,48 @@ def _build_og_image() -> bytes:
             draw.ellipse([gx-1, gy-1, gx+1, gy+1],
                          fill=VIOLET + (28,))
 
-    # Faint radial glow top-left — purely atmospheric, well clear of text
-    for r in range(280, 0, -4):
-        alpha = max(0, int(7 * (1 - r / 280)))
+    # Small quarter-circle glow, top-left corner only
+    for r in range(110, 0, -4):
+        alpha = max(0, int(12 * (1 - r / 110)))
         draw.ellipse([-r, -r, r, r], fill=VIOLET + (alpha,))
 
-    f_huge  = _load_font("nunito_900.ttf", 72)
+    f_word  = _load_font("nunito_900.ttf", 88)   # big two-line wordmark
     f_large = _load_font("nunito_900.ttf", 48)
     f_med   = _load_font("nunito_800.ttf", 32)
     f_small = _load_font("nunito_800.ttf", 22)
     f_tiny  = _load_font("nunito_800.ttf", 18)
 
-    # ── Left column: wordmark + single tagline ────────────────────────────
-    PAD = 72
+    # ── Left column: stacked two-line wordmark ────────────────────────────
+    PAD   = 60
+    # Card lives at CARD_X=730; left column center = (PAD + 730) / 2 ≈ 395
+    LC    = (PAD + 730) // 2   # horizontal centre of left column
 
-    # Vertically center the two-line block
-    y = 220
+    # Measure so we can centre both lines
+    w_indigo  = draw.textlength("INDIGO",  font=f_word)
+    w_circuit = draw.textlength("CIRCUIT", font=f_word)
 
-    # "INDIGO" violet · "CIRCUIT" electric
-    draw.text((PAD, y), "INDIGO ", font=f_huge, fill=VIOLET + (255,))
-    w_indigo = draw.textlength("INDIGO ", font=f_huge)
-    draw.text((PAD + w_indigo, y), "CIRCUIT", font=f_huge, fill=ELECTRIC + (255,))
+    # Vertically centre the block (wordmark + tagline) in the canvas
+    block_h = 88 + 10 + 88 + 28 + 26   # line1 + gap + line2 + gap + tagline
+    y_start = (H - block_h) // 2
 
-    y += 90
-    draw.text((PAD, y), "welcome to the circuit", font=f_small, fill=MUTED + (200,))
+    draw.text((LC - w_indigo  // 2, y_start),        "INDIGO",  font=f_word, fill=VIOLET   + (255,))
+    draw.text((LC - w_circuit // 2, y_start + 98),   "CIRCUIT", font=f_word, fill=ELECTRIC + (255,))
+
+    tagline = "welcome to the circuit"
+    tw = draw.textlength(tagline, font=f_small)
+    draw.text((LC - tw // 2, y_start + 98 + 96), tagline, font=f_small, fill=MUTED + (200,))
 
     # ── Right column: Champion card ───────────────────────────────────────
-    CARD_X, CARD_Y = 660, 90
-    CARD_W, CARD_H = 465, 448
+    CARD_X, CARD_Y = 730, 55
+    CARD_W, CARD_H = 445, 520
     RADIUS = 18
 
     # Card shadow
-    shadow_offset = 8
-    for i in range(12, 0, -1):
-        alpha = int(60 * (i / 12))
+    for i in range(10, 0, -1):
+        a = int(50 * (i / 10))
         draw.rounded_rectangle(
-            [CARD_X + shadow_offset, CARD_Y + shadow_offset,
-             CARD_X + CARD_W + shadow_offset, CARD_Y + CARD_H + shadow_offset],
-            radius=RADIUS, fill=(0, 0, 0, alpha)
+            [CARD_X + 6, CARD_Y + 6, CARD_X + CARD_W + 6, CARD_Y + CARD_H + 6],
+            radius=RADIUS, fill=(0, 0, 0, a)
         )
 
     # Card background
@@ -812,14 +816,14 @@ def _build_og_image() -> bytes:
     )
 
     # Champion badge
-    badge_x, badge_y = CARD_X + 22, CARD_Y + 26
-    badge_w = 160
+    badge_x, badge_y = CARD_X + 20, CARD_Y + 20
+    badge_w = 148
     draw.rounded_rectangle(
-        [badge_x, badge_y, badge_x + badge_w, badge_y + 30],
+        [badge_x, badge_y, badge_x + badge_w, badge_y + 28],
         radius=5, fill=_hex("2a1a00") + (220,),
         outline=GOLD + (160,), width=1
     )
-    draw.text((badge_x + 8, badge_y + 6), "CHAMPION", font=f_tiny, fill=GOLD + (255,))
+    draw.text((badge_x + 8, badge_y + 5), "CHAMPION", font=f_tiny, fill=GOLD + (255,))
 
     # Fetch champion data
     champ = None
@@ -839,29 +843,27 @@ def _build_og_image() -> bytes:
         pass
 
     cx = CARD_X + CARD_W // 2
-    sprite_y = CARD_Y + 72
+    # Sprite sits right below the badge — tighter gap
+    sprite_y = CARD_Y + 62
 
     # Deck sprite
     if champ:
         sprite_url = champ.get("TOP_DECK_SPRITE") or champ.get("top_deck_sprite")
         if not sprite_url:
-            # build from deck name
             dn = (champ.get("TOP_DECK_NAME") or champ.get("top_deck_name") or "").lower()
             dn = re.sub(r"\b\w+'\s*s\s+", "", dn)
             dn = re.sub(r"\bmega\b|\bex\b|\bvstar\b|\bvmax\b|\bgx\b|\bv\b", "", dn)
             dn = re.sub(r"[\s-]+", "-", dn.strip()).strip("-")
-            first = dn.split("-")[0]
-            sprite_url = f"https://r2.limitlesstcg.net/pokemon/gen9/{first}.png"
+            sprite_url = f"https://r2.limitlesstcg.net/pokemon/gen9/{dn.split('-')[0]}.png"
         try:
             resp = http.get(sprite_url, timeout=3)
             if resp.status_code == 200:
                 spr = PilImage.open(io.BytesIO(resp.content)).convert("RGBA")
-                spr = spr.resize((96, 96), PilImage.LANCZOS)
-                img.paste(spr, (cx - 48, sprite_y), spr)
+                spr = spr.resize((110, 110), PilImage.LANCZOS)
+                img.paste(spr, (cx - 55, sprite_y), spr)
         except Exception:
             pass
 
-    name_y = sprite_y + 108
     name  = (champ.get("PLAYER_NAME") or champ.get("player_name") or "—") if champ else "—"
     deck  = (champ.get("TOP_DECK_NAME") or champ.get("top_deck_name") or "") if champ else ""
     atp   = champ.get("ATP_SCORE") or champ.get("atp_score") if champ else None
@@ -869,17 +871,16 @@ def _build_og_image() -> bytes:
     t8s   = champ.get("TOP8S") or champ.get("top8s") if champ else None
     majors= champ.get("MAJORS_COUNTED") or champ.get("majors_counted") if champ else None
 
-    # Name — center it
+    name_y = sprite_y + 120
     name_w = draw.textlength(name, font=f_large)
     draw.text((cx - name_w // 2, name_y), name, font=f_large, fill=WHITE + (255,))
 
     if deck:
         deck_w = draw.textlength(deck, font=f_small)
-        draw.text((cx - deck_w // 2, name_y + 58), deck,
-                  font=f_small, fill=GOLD + (200,))
+        draw.text((cx - deck_w // 2, name_y + 56), deck, font=f_small, fill=GOLD + (200,))
 
     # Divider
-    div_y = name_y + 100
+    div_y = name_y + 96
     draw.line([(CARD_X + 22, div_y), (CARD_X + CARD_W - 22, div_y)],
               fill=BORDER + (180,), width=1)
 
@@ -892,20 +893,18 @@ def _build_og_image() -> bytes:
     col_w = CARD_W // 3
     for i, (val, label, color) in enumerate(stats):
         sx = CARD_X + col_w * i + col_w // 2
-        sy = div_y + 20
+        sy = div_y + 22
         val_w = draw.textlength(val, font=f_med)
         draw.text((sx - val_w // 2, sy), val, font=f_med, fill=color + (255,))
         lbl_w = draw.textlength(label, font=f_tiny)
-        draw.text((sx - lbl_w // 2, sy + 40), label, font=f_tiny, fill=MUTED + (200,))
+        draw.text((sx - lbl_w // 2, sy + 42), label, font=f_tiny, fill=MUTED + (200,))
 
-    # Footer: majors count
     if majors:
         foot = f"{majors} major tournaments"
         fw = draw.textlength(foot, font=f_tiny)
-        draw.text((cx - fw // 2, div_y + 108), foot, font=f_tiny, fill=MUTED + (160,))
+        draw.text((cx - fw // 2, div_y + 110), foot, font=f_tiny, fill=MUTED + (160,))
 
-    # Subtle domain watermark — small, bottom-left, just enough to brand
-    draw.text((PAD, H - 44), "indigocircuit.app", font=f_tiny, fill=MUTED + (100,))
+    draw.text((PAD, H - 36), "indigocircuit.app", font=f_tiny, fill=MUTED + (90,))
 
     out = io.BytesIO()
     img.convert("RGB").save(out, format="PNG", optimize=True)
