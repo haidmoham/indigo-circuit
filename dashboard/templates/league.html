@@ -42,10 +42,10 @@ function statBox(label, value, color) {
     </div>`;
 }
 
-function playerLink(name, id) {
+function playerLink(name) {
   const safe = JSON.stringify(name).replace(/"/g, '&quot;');
   return `<span class="trainer-link" onclick="showTrainerCard(${safe})">${name}</span>` +
-         `<a href="${limitlesstcg(name, id)}" target="_blank" rel="noopener" class="ext-link">&#8599;</a>`;
+         `<a href="${limitlesstcg(name)}" target="_blank" rel="noopener" class="ext-link">&#8599;</a>`;
 }
 
 async function load() {
@@ -84,7 +84,7 @@ async function load() {
                 color:${theme.c};text-transform:uppercase;letter-spacing:0.08em">${champ.TOP_DECK_NAME}</span>` : ''}
             </div>
             <h2 style="font-size:2.2rem;font-weight:900;line-height:1.05;">
-              ${playerLink(champ.PLAYER_NAME, champ.PLAYER_ID)}
+              ${playerLink(champ.PLAYER_NAME)}
             </h2>
             <p style="color:var(--muted);margin-top:0.3rem;font-size:0.85rem;font-weight:600">
               ${champ.COUNTRY ? champ.COUNTRY + ' · ' : ''}${champ.MAJORS_COUNTED} majors
@@ -148,7 +148,7 @@ async function load() {
                  filter:drop-shadow(0 0 6px ${theme.c}66);" onerror="this.style.display='none'">` : ''}
         <div>
           <div style="font-size:1.05rem;font-weight:800;line-height:1.1;margin-bottom:0.15rem">
-            ${playerLink(p.PLAYER_NAME, p.PLAYER_ID)}
+            ${playerLink(p.PLAYER_NAME)}
           </div>
           <div style="font-size:0.72rem;font-weight:700;color:${theme.c};text-transform:uppercase;letter-spacing:0.07em">
             ${p.TOP_DECK_NAME || ''}
@@ -204,7 +204,7 @@ async function load() {
             ${g.ARCHETYPE}
           </div>
           <div style="font-weight:800;font-size:0.92rem">
-            ${playerLink(g.PLAYER_NAME, g.PLAYER_ID)}
+            ${playerLink(g.PLAYER_NAME)}
           </div>
         </div>
       </div>

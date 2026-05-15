@@ -46,6 +46,10 @@ def query(sql, params=None):
 
 @app.get("/")
 def index():
+    return render_template("league.html")
+
+@app.get("/search")
+def search():
     return render_template("index.html")
 
 @app.get("/player/<username>")
@@ -58,6 +62,7 @@ def meta():
 
 @app.get("/league")
 def league():
+    # keep old URL working
     return render_template("league.html")
 
 @app.get("/leaderboard")
