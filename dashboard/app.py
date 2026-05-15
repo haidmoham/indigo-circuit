@@ -300,21 +300,33 @@ def player_stats(name):
 def online_leaderboard():
     rows = query(
         f"""
-        SELECT player_username, player_name, country,
-               tournaments_entered, total_wins, total_losses,
-               round(win_rate * 100, 1)          AS win_rate_pct,
-               best_placement, top8_finishes, top_cut_count,
-               round(top_cut_rate * 100, 1)       AS top_cut_pct,
-               round(avg_placement, 1)            AS avg_placement,
-               round(glicko_rating, 0)            AS glicko_rating,
-               round(glicko_rd, 0)                AS glicko_rd,
-               round(glicko_rating_low, 0)        AS glicko_low,
-               round(glicko_rating_high, 0)       AS glicko_high,
-               last_played::date::varchar         AS last_played
-        FROM PTCG_SCOUTING.{MARTS}.PLAYERS_ENRICHED
-        WHERE glicko_rating IS NOT NULL
-          AND tournaments_entered >= 3
-        ORDER BY glicko_rating DESC
+        WITH top_decks AS (
+            SELECT player_username, deck_name, deck_id,
+                   ROW_NUMBER() OVER (
+                       PARTITION BY player_username
+                       ORDER BY times_played DESC
+                   ) AS rn
+            FROM PTCG_SCOUTING.{MARTS}.PLAYER_ARCHETYPE_HISTORY
+        )
+        SELECT pe.player_username, pe.player_name, pe.country,
+               pe.tournaments_entered, pe.total_wins, pe.total_losses,
+               round(pe.win_rate * 100, 1)        AS win_rate_pct,
+               pe.best_placement, pe.top8_finishes, pe.top_cut_count,
+               round(pe.top_cut_rate * 100, 1)    AS top_cut_pct,
+               round(pe.avg_placement, 1)         AS avg_placement,
+               round(pe.glicko_rating, 0)         AS glicko_rating,
+               round(pe.glicko_rd, 0)             AS glicko_rd,
+               round(pe.glicko_rating_low, 0)     AS glicko_low,
+               round(pe.glicko_rating_high, 0)    AS glicko_high,
+               pe.last_played::date::varchar      AS last_played,
+               td.deck_name                       AS top_deck_name,
+               td.deck_id                         AS top_deck_id
+        FROM PTCG_SCOUTING.{MARTS}.PLAYERS_ENRICHED pe
+        LEFT JOIN top_decks td
+          ON pe.player_username = td.player_username AND td.rn = 1
+        WHERE pe.glicko_rating IS NOT NULL
+          AND pe.tournaments_entered >= 3
+        ORDER BY pe.glicko_rating_low DESC
         LIMIT 100
         """
     )

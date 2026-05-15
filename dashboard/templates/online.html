@@ -13,9 +13,9 @@
   </div>
   <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;
               padding:0.65rem 1rem;font-size:0.72rem;color:var(--muted);font-weight:600;
-              max-width:320px;line-height:1.5">
-    Ranked by Glicko-2 rating across all Limitless online events.
-    ± shows rating deviation — lower means more games played and higher confidence.
+              max-width:340px;line-height:1.5">
+    Ranked by conservative Glicko-2 estimate (rating − 2×RD). Volume is rewarded:
+    low-game-count players are penalised by their high rating deviation.
     Minimum 3 events to appear.
   </div>
 </div>
@@ -32,6 +32,7 @@
         <th style="padding:0.6rem 0.75rem;text-align:right;width:2.5rem">#</th>
         <th style="padding:0.6rem 0.75rem;text-align:left">Player</th>
         <th style="padding:0.6rem 0.75rem;text-align:left">Country</th>
+        <th style="padding:0.6rem 0.75rem;text-align:left">Deck</th>
         <th style="padding:0.6rem 0.75rem;text-align:right">Rating</th>
         <th style="padding:0.6rem 0.75rem;text-align:left;min-width:140px">Confidence</th>
         <th style="padding:0.6rem 0.75rem;text-align:right">Events</th>
@@ -73,6 +74,9 @@ async function load() {
     const wr        = p.WIN_RATE_PCT     || p.win_rate_pct;
     const tcPct     = p.TOP_CUT_PCT      || p.top_cut_pct;
     const best      = p.BEST_PLACEMENT   || p.best_placement;
+    const deckName  = p.TOP_DECK_NAME    || p.top_deck_name    || '';
+    const deckSprite= getSprite(null, deckName);
+    const deckTheme = getTheme({ TOP_DECK_NAME: deckName });
 
     const rankColor  = rank === 1 ? 'var(--gold)' : rank <= 3 ? 'var(--violet)' : 'var(--muted)';
     const rankWeight = rank <= 3 ? '900' : '700';
@@ -107,6 +111,15 @@ async function load() {
           ? `<div style="font-size:0.7rem;color:var(--muted);margin-top:0.1rem">@${username}</div>` : ''}
       </td>
       <td style="padding:0.65rem 0.75rem;color:var(--muted);font-size:0.8rem;font-weight:600">${country}</td>
+      <td style="padding:0.65rem 0.75rem">
+        <div style="display:flex;align-items:center;gap:0.4rem">
+          ${deckSprite ? `<img src="${deckSprite}" alt="${deckName}"
+            style="width:28px;height:28px;object-fit:contain;image-rendering:pixelated;flex-shrink:0;
+                   filter:drop-shadow(0 0 3px ${deckTheme.c}66);" onerror="this.style.display='none'">` : ''}
+          ${deckName ? `<span style="font-size:0.75rem;font-weight:700;color:${deckTheme.c}">${deckName}</span>`
+                     : `<span style="color:var(--muted);font-size:0.75rem">—</span>`}
+        </div>
+      </td>
       <td style="padding:0.65rem 0.75rem;text-align:right">
         <span style="font-size:1rem;font-weight:900;color:${ratingColor}">${Math.round(rating)}</span>
         <span style="font-size:0.65rem;color:${rdColor};margin-left:0.25rem;font-weight:700">±${Math.round(rd)}</span>

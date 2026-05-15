@@ -83,7 +83,8 @@ async function load() {
     const events   = boss.TOURNAMENTS_ENTERED || boss.tournaments_entered || 0;
     const wr       = boss.WIN_RATE_PCT   || boss.win_rate_pct;
     const tcPct    = boss.TOP_CUT_PCT    || boss.top_cut_pct;
-    const sprite   = getSprite(null, name);
+    const deckName = boss.TOP_DECK_NAME  || boss.top_deck_name  || '';
+    const sprite   = getSprite(null, deckName);
 
     document.getElementById('boss-section').innerHTML = `
       <div style="
@@ -93,7 +94,7 @@ async function load() {
         box-shadow: 0 0 60px ${D_GLOW}, 0 0 0 1px rgba(255,255,255,0.03);
       ">
         <div style="display:flex;align-items:center;gap:2rem;flex-wrap:wrap">
-          ${sprite ? `<img src="${sprite}" alt="${name}"
+          ${sprite ? `<img src="${sprite}" alt="${deckName}"
             style="width:96px;height:96px;object-fit:contain;image-rendering:pixelated;
                    filter:drop-shadow(0 0 14px ${D_RED}99) saturate(0.6) brightness(0.8);"
             onerror="this.style.display='none'">` : ''}
@@ -105,6 +106,9 @@ async function load() {
                 border-radius:5px;font-size:0.7rem;font-weight:800;
                 letter-spacing:0.08em;text-transform:uppercase;
                 text-shadow:0 0 8px rgba(229,62,62,0.5)">☠ The Boss</span>
+              ${deckName ? `<span style="font-size:0.72rem;font-weight:700;
+                color:${D_RED};text-transform:uppercase;letter-spacing:0.08em;
+                opacity:0.75">${deckName}</span>` : ''}
             </div>
             <h2 style="font-size:2.2rem;font-weight:900;line-height:1.05">
               ${demonLink(name)}
@@ -139,14 +143,15 @@ async function load() {
   // ── Admins ────────────────────────────────────────────────────────────────
   const admins = top.slice(1, 5);
   document.getElementById('admins').innerHTML = admins.map(p => {
-    const name    = p.PLAYER_NAME    || p.player_name    || p.PLAYER_USERNAME || '';
-    const country = p.COUNTRY        || p.country        || '';
-    const rating  = +(p.GLICKO_RATING|| p.glicko_rating  || 0);
-    const rd      = +(p.GLICKO_RD    || p.glicko_rd      || 0);
-    const events  = p.TOURNAMENTS_ENTERED || p.tournaments_entered || 0;
-    const wr      = p.WIN_RATE_PCT   || p.win_rate_pct;
-    const tcPct   = p.TOP_CUT_PCT    || p.top_cut_pct;
-    const sprite  = getSprite(null, name);
+    const name     = p.PLAYER_NAME    || p.player_name    || p.PLAYER_USERNAME || '';
+    const country  = p.COUNTRY        || p.country        || '';
+    const rating   = +(p.GLICKO_RATING|| p.glicko_rating  || 0);
+    const rd       = +(p.GLICKO_RD    || p.glicko_rd      || 0);
+    const events   = p.TOURNAMENTS_ENTERED || p.tournaments_entered || 0;
+    const wr       = p.WIN_RATE_PCT   || p.win_rate_pct;
+    const tcPct    = p.TOP_CUT_PCT    || p.top_cut_pct;
+    const deckName = p.TOP_DECK_NAME  || p.top_deck_name  || '';
+    const sprite   = getSprite(null, deckName);
 
     return `
     <div style="
@@ -166,7 +171,7 @@ async function load() {
       </div>
 
       <div style="display:flex;align-items:center;gap:0.85rem;margin-bottom:0.85rem">
-        ${sprite ? `<img src="${sprite}" alt="${name}"
+        ${sprite ? `<img src="${sprite}" alt="${deckName}"
           style="width:56px;height:56px;object-fit:contain;image-rendering:pixelated;flex-shrink:0;
                  filter:drop-shadow(0 0 6px ${D_RED}55) saturate(0.5) brightness(0.75);"
           onerror="this.style.display='none'">` : ''}
@@ -174,7 +179,9 @@ async function load() {
           <div style="font-size:1.05rem;font-weight:800;line-height:1.1;margin-bottom:0.15rem">
             ${demonLink(name)}
           </div>
-          <div style="color:var(--muted);font-size:0.75rem;margin-top:0.1rem">${country}</div>
+          ${deckName ? `<div style="font-size:0.7rem;font-weight:700;color:${D_RED};
+            text-transform:uppercase;letter-spacing:0.07em;opacity:0.75;margin-bottom:0.1rem">${deckName}</div>` : ''}
+          <div style="color:var(--muted);font-size:0.75rem">${country}</div>
         </div>
       </div>
 
