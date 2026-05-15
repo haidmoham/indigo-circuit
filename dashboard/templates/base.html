@@ -159,6 +159,21 @@
       text-decoration: none; vertical-align: super;
     }
     .ext-link:hover { color: var(--text); }
+    /* Quick-view pill — trainer-link used as a button */
+    .trainer-link.ext-link {
+      display: inline-flex; align-items: center;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid rgba(255,255,255,0.14);
+      border-radius: 4px;
+      padding: 0.1rem 0.45rem;
+      font-size: 0.62rem; font-weight: 700; letter-spacing: 0.04em;
+      vertical-align: middle; line-height: 1.5;
+    }
+    .trainer-link.ext-link:hover {
+      color: var(--violet);
+      border-color: rgba(160,124,248,0.5);
+      background: rgba(160,124,248,0.1);
+    }
 
     /* ── Loading bar ────────────────────────────────────────────────── */
     #global-loader {
@@ -296,6 +311,23 @@
       return `https://limitlesstcg.com/players?q=${encodeURIComponent(name)}`;
     }
 
+    function countryFlag(code) {
+      if (!code || code.length !== 2) return '';
+      const base = 0x1F1E6 - 65;
+      try {
+        return String.fromCodePoint(
+          base + code.toUpperCase().charCodeAt(0),
+          base + code.toUpperCase().charCodeAt(1)
+        );
+      } catch(e) { return ''; }
+    }
+
+    function countryDisplay(code) {
+      if (!code) return '';
+      const flag = countryFlag(code);
+      return flag ? `${flag} ${code}` : code;
+    }
+
     // ── Global loading bar ───────────────────────────────────────────────
     let _loaderCount = 0;
     function _startLoad() {
@@ -401,7 +433,7 @@
           </div>` : ''}
         <div style="text-align:center;margin-bottom:1rem">
           <div style="font-size:1.5rem;font-weight:900;color:#fff;line-height:1.1">${name}</div>
-          ${country ? `<div style="font-size:0.8rem;color:var(--muted);margin-top:0.25rem;font-weight:600">&#127760; ${country}</div>` : ''}
+          ${country ? `<div style="font-size:0.8rem;color:var(--muted);margin-top:0.25rem;font-weight:600">${countryDisplay(country)}</div>` : ''}
         </div>
         <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.5rem;
                     padding:0.75rem 0;border-top:1px solid rgba(255,255,255,0.08);
@@ -502,9 +534,9 @@
     <a href="/">The League</a>
     <a href="/demons">Demons</a>
     <a href="/leaderboard">Rankings</a>
+    <a href="/online">Online Rankings</a>
     <a href="/meta">Meta</a>
     <a href="/tech">Tech</a>
-    <a href="/online">Online</a>
     <a href="/search">Search</a>
   </nav>
   <main>{% block content %}{% endblock %}</main>

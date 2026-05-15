@@ -94,7 +94,7 @@ async function load() {
   document.getElementById('player-name').textContent = displayName;
 
   if (r?.COUNTRY) {
-    document.getElementById('player-country').textContent = r.COUNTRY;
+    document.getElementById('player-country').textContent = countryDisplay(r.COUNTRY);
   }
 
   // Deck sprite from top deck

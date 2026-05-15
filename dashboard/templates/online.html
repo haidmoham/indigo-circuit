@@ -122,7 +122,7 @@ async function load() {
         ${username && username !== displayName
           ? `<div style="font-size:0.7rem;color:var(--muted);margin-top:0.1rem">@${username}</div>` : ''}
       </td>
-      <td style="padding:0.65rem 0.75rem;color:var(--muted);font-size:0.8rem;font-weight:600">${country}</td>
+      <td style="padding:0.65rem 0.75rem;color:var(--muted);font-size:0.8rem;font-weight:600">${countryDisplay(country)}</td>
       <td style="padding:0.65rem 0.75rem">
         <div style="display:flex;align-items:center;gap:0.4rem">
           ${deckSprite ? `<img src="${deckSprite}" alt="${deckName}"

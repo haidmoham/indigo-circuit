@@ -53,7 +53,7 @@ function playerLink(name) {
             >${name}</a>` +
          `<span class="trainer-link ext-link" title="Quick view"
                 onclick="showTrainerCard(${safe})"
-                style="margin-left:0.35rem;font-size:0.68rem">&#9776;</span>`;
+                style="margin-left:0.35rem;font-size:0.68rem">view</span>`;
 }
 
 async function load() {
@@ -95,7 +95,7 @@ async function load() {
               ${playerLink(champ.PLAYER_NAME)}
             </h2>
             <p style="color:var(--muted);margin-top:0.3rem;font-size:0.85rem;font-weight:600">
-              ${champ.COUNTRY ? champ.COUNTRY + ' · ' : ''}${champ.MAJORS_COUNTED} majors
+              ${champ.COUNTRY ? countryDisplay(champ.COUNTRY) + ' · ' : ''}${champ.MAJORS_COUNTED} majors
             </p>
           </div>
 
@@ -161,7 +161,7 @@ async function load() {
           <div style="font-size:0.72rem;font-weight:700;color:${theme.c};text-transform:uppercase;letter-spacing:0.07em">
             ${p.TOP_DECK_NAME || ''}
           </div>
-          <div style="color:var(--muted);font-size:0.75rem;margin-top:0.1rem">${p.COUNTRY || ''}</div>
+          <div style="color:var(--muted);font-size:0.75rem;margin-top:0.1rem">${countryDisplay(p.COUNTRY)}</div>
         </div>
       </div>
 

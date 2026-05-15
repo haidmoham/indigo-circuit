@@ -96,9 +96,9 @@ async function load() {
         >${name}</a>
         <span class="trainer-link ext-link" title="Quick view"
               onclick="showTrainerCard(${JSON.stringify(name).replace(/"/g,'&quot;')})"
-              style="margin-left:0.35rem;font-size:0.68rem">&#9776;</span>
+              style="margin-left:0.35rem;font-size:0.68rem">view</span>
       </td>
-      <td style="padding:0.65rem 0.75rem; color:var(--muted); font-size:0.8rem; font-weight:600">${country}</td>
+      <td style="padding:0.65rem 0.75rem; color:var(--muted); font-size:0.8rem; font-weight:600">${countryDisplay(country)}</td>
       <td style="padding:0.65rem 0.75rem">
         <div style="display:flex;align-items:center;gap:0.4rem">
           ${sprite ? `<img src="${sprite}" alt="${deckName}"

@@ -114,7 +114,7 @@ async function load() {
               ${demonLink(name)}
             </h2>
             <p style="color:var(--muted);margin-top:0.3rem;font-size:0.85rem;font-weight:600">
-              ${country ? country + ' · ' : ''}${events} events
+              ${country ? countryDisplay(country) + ' · ' : ''}${events} events
             </p>
           </div>
 
@@ -181,7 +181,7 @@ async function load() {
           </div>
           ${deckName ? `<div style="font-size:0.7rem;font-weight:700;color:${D_RED};
             text-transform:uppercase;letter-spacing:0.07em;opacity:0.75;margin-bottom:0.1rem">${deckName}</div>` : ''}
-          <div style="color:var(--muted);font-size:0.75rem">${country}</div>
+          <div style="color:var(--muted);font-size:0.75rem">${countryDisplay(country)}</div>
         </div>
       </div>
 
@@ -236,7 +236,7 @@ async function load() {
       <div style="display:flex;gap:1rem;font-size:0.73rem;color:var(--muted);font-weight:600;
                   margin-top:0.6rem;padding-top:0.5rem;border-top:1px solid rgba(255,255,255,0.05)">
         <span style="color:var(--green)">${wr != null ? wr + '%' : '—'} WR</span>
-        ${country ? `<span>${country}</span>` : ''}
+        ${country ? `<span>${countryDisplay(country)}</span>` : ''}
       </div>
     </div>`;
   }).join('') || '<p style="color:var(--muted)">Not enough data yet.</p>';
