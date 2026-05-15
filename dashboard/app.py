@@ -4,10 +4,13 @@ Reads from Snowflake PTCG_SCOUTING via environment variables.
 """
 import json
 import os
+import re
 from datetime import date
+from urllib.parse import quote as urlquote
 
+import requests as http
 import snowflake.connector
-from flask import Flask, render_template, request, jsonify
+from flask import Flask, render_template, request, jsonify, redirect
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -41,6 +44,93 @@ def query(sql, params=None):
 
 
 # ---------------------------------------------------------------------------
+# Limitless player-ID resolver
+# ---------------------------------------------------------------------------
+# Labs-scrape player_ids don't map to limitlesstcg.com IDs, so we resolve
+# them on-demand by taking the first result from the Limitless player search.
+# Results are cached in Snowflake so each name is only fetched once.
+# To correct a bad mapping: UPDATE RAW.LIMITLESS_PLAYER_IDS
+#   SET limitless_id = '<correct_id>' WHERE player_name_lower = '<name>';
+
+_lid_cache: dict = {}          # L1 — in-process, survives within one worker
+_lid_table_ready: bool = False
+
+
+def _ensure_lid_table():
+    global _lid_table_ready
+    if _lid_table_ready:
+        return
+    try:
+        query("""
+            CREATE TABLE IF NOT EXISTS RAW.LIMITLESS_PLAYER_IDS (
+                player_name_lower VARCHAR NOT NULL,
+                limitless_id      VARCHAR,
+                resolved_at       TIMESTAMP_LTZ DEFAULT CURRENT_TIMESTAMP()
+            )
+        """)
+    except Exception:
+        pass
+    _lid_table_ready = True
+
+
+def _resolve_limitless_id(name: str):
+    """Return the limitlesstcg.com player ID for *name*, or None on failure."""
+    _ensure_lid_table()
+    key = name.lower().strip()
+
+    if key in _lid_cache:
+        return _lid_cache[key]
+
+    # L2 — Snowflake cache
+    try:
+        rows = query(
+            "SELECT limitless_id FROM RAW.LIMITLESS_PLAYER_IDS WHERE player_name_lower = %s",
+            (key,),
+        )
+        if rows:
+            lid = rows[0].get("LIMITLESS_ID")
+            _lid_cache[key] = lid
+            return lid
+    except Exception:
+        pass
+
+    # Live fetch — first result of limitlesstcg.com player search
+    lid = None
+    try:
+        r = http.get(
+            "https://limitlesstcg.com/players",
+            params={"q": name},
+            timeout=6,
+            headers={"User-Agent": "Mozilla/5.0"},
+        )
+        m = re.search(r'href="/players/(\d+)"', r.text)
+        if m:
+            lid = m.group(1)
+    except Exception:
+        pass
+
+    _lid_cache[key] = lid
+
+    # Persist result (MERGE = upsert so re-runs overwrite stale entries)
+    try:
+        query(
+            """
+            MERGE INTO RAW.LIMITLESS_PLAYER_IDS t
+            USING (SELECT %s AS k, %s AS v) s ON t.player_name_lower = s.k
+            WHEN MATCHED THEN UPDATE SET limitless_id = s.v,
+                                         resolved_at  = CURRENT_TIMESTAMP()
+            WHEN NOT MATCHED THEN INSERT (player_name_lower, limitless_id)
+                                  VALUES (s.k, s.v)
+            """,
+            (key, lid),
+        )
+    except Exception:
+        pass  # non-fatal; in-memory cache still works
+
+    return lid
+
+
+# ---------------------------------------------------------------------------
 # Routes
 # ---------------------------------------------------------------------------
 
@@ -68,6 +158,14 @@ def league():
 @app.get("/leaderboard")
 def leaderboard():
     return render_template("leaderboard.html")
+
+@app.get("/go/<path:name>")
+def limitless_go(name):
+    """Resolve player name → limitlesstcg.com profile via search first-result."""
+    lid = _resolve_limitless_id(name)
+    if lid:
+        return redirect(f"https://limitlesstcg.com/players/{lid}", 302)
+    return redirect(f"https://limitlesstcg.com/players?q={urlquote(name)}", 302)
 
 
 # ---------------------------------------------------------------------------
