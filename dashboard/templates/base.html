@@ -265,6 +265,14 @@
 
     const SPRITE_BASE = 'https://r2.limitlesstcg.net/pokemon/gen9/';
 
+    // Archetypes named after abilities/items rather than Pokémon.
+    // Add entries here whenever a new one surfaces.
+    const DECK_ALIASES = {
+      'festival lead':  'applin',      // Applin ability
+      'sparkling aria': 'primarina',   // Primarina ability
+      'future shift':   'iron-valiant',
+    };
+
     const COMPOUND_NAMES = [
       'raging-bolt','iron-hands','iron-valiant','iron-moth','iron-jugulis',
       'iron-treads','iron-boulder','iron-crown','iron-leaves','iron-thorns',
@@ -275,8 +283,16 @@
 
     function buildSprite(deckName) {
       if (!deckName) return null;
-      let s = deckName.toLowerCase()
+      const lower = deckName.toLowerCase().trim();
+      // Ability/item-named archetypes that don't match any Pokémon name
+      for (const [alias, target] of Object.entries(DECK_ALIASES)) {
+        if (lower === alias || lower.startsWith(alias + ' ') || lower.startsWith(alias + '-')) {
+          return SPRITE_BASE + target + '.png';
+        }
+      }
+      let s = lower
         .replace(/\b\w+'\s*s\s+/g, '')          // strip trainer possessives: "Rocket's ", "N's "
+        .replace(/\bmega\b/g, '')                // strip Mega prefix (Mega Starmie → starmie)
         .replace(/\bex\b|\bvstar\b|\bvmax\b|\bgx\b|\bv\b/g, '')
         .replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
       for (const c of COMPOUND_NAMES) {
