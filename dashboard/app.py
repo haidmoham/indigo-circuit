@@ -2,7 +2,9 @@
 Indigo Circuit — Flask dashboard.
 Reads from Snowflake PTCG_SCOUTING via environment variables.
 """
+import json
 import os
+from datetime import date
 
 import snowflake.connector
 from flask import Flask, render_template, request, jsonify
@@ -162,9 +164,39 @@ def head_to_head(username, opponent):
     return jsonify(rows[0] if rows else {})
 
 
+def _current_format_cutoff():
+    """Return the start date of the current Standard format.
+    Falls back to the previous format's start if no majors have occurred yet
+    in the newest set — so we never serve an empty meta page.
+    """
+    fmts_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'formats.json')
+    with open(fmts_path) as f:
+        fmts = sorted(json.load(f), key=lambda x: x['start'])
+
+    today = date.today().isoformat()
+    active = [x for x in fmts if x['start'] <= today]
+    if not active:
+        return fmts[0]['start']
+
+    current_start = active[-1]['start']
+    prev_start    = active[-2]['start'] if len(active) >= 2 else current_start
+
+    # Check whether any major has been played in the current format window
+    rows = query(
+        f"""
+        SELECT 1 FROM PTCG_SCOUTING.{MARTS}.MAJOR_PLAYER_HISTORY
+        WHERE tournament_date >= %s LIMIT 1
+        """,
+        (current_start,),
+    )
+    return current_start if rows else prev_start
+
+
 @app.get("/api/meta")
 def meta_stats():
-    # Majors only, rolling 52-week window — same window as seasonal_rankings
+    # Restrict to current Standard format only; fall back to prior format if
+    # no majors have happened yet in the new set.
+    cutoff = _current_format_cutoff()
     rows = query(
         f"""
         SELECT deck_name,
@@ -174,11 +206,12 @@ def meta_stats():
                sum(case when placing <= 8 then 1 else 0 end)                   as top8s
         FROM PTCG_SCOUTING.{MARTS}.MAJOR_PLAYER_HISTORY
         WHERE deck_name is not null
-          AND tournament_date >= dateadd('week', -52, current_date())
+          AND tournament_date >= %s
         GROUP BY deck_name
         ORDER BY appearances DESC
         LIMIT 30
-        """
+        """,
+        (cutoff,),
     )
     return jsonify(rows)
 
