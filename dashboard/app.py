@@ -325,13 +325,14 @@ def player_stats(name):
         (name,),
     )
 
-    # Full major history (all tournaments, not just last 52 weeks)
+    # Major history — rolling 52-week window
     history = query(
         f"""
         SELECT tournament_name, tournament_date, placing, player_count,
                normalized_placement, wins, losses, deck_name, tier, tournament_id
         FROM PTCG_SCOUTING.{MARTS}.MAJOR_PLAYER_HISTORY
         WHERE lower(player_name) = lower(%s)
+          AND tournament_date >= DATEADD('week', -52, CURRENT_DATE())
         ORDER BY tournament_date DESC
         """,
         (name,),
@@ -340,7 +341,7 @@ def player_stats(name):
     if not history:
         return jsonify({"error": "player not found"}), 404
 
-    # Archetype breakdown across all history
+    # Archetype breakdown — rolling 52-week window
     archetypes = query(
         f"""
         SELECT deck_name,
@@ -354,6 +355,7 @@ def player_stats(name):
         FROM PTCG_SCOUTING.{MARTS}.MAJOR_PLAYER_HISTORY
         WHERE lower(player_name) = lower(%s)
           AND deck_name IS NOT NULL
+          AND tournament_date >= DATEADD('week', -52, CURRENT_DATE())
         GROUP BY deck_name
         ORDER BY times_played DESC
         """,
