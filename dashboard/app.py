@@ -13,11 +13,13 @@ from urllib.parse import quote as urlquote
 import requests as http
 import snowflake.connector
 from flask import Flask, render_template, request, jsonify, redirect
+from flask_compress import Compress
 from dotenv import load_dotenv
 
 load_dotenv()
 
 app = Flask(__name__)
+Compress(app)   # gzip all JSON/HTML responses >500 bytes automatically
 
 # Schema where dbt marts live (override with env var in production)
 MARTS = os.environ.get("DBT_MARTS_SCHEMA", "DBT_DEV_MARTS")
@@ -103,6 +105,16 @@ def cached(key: str, fn, ttl: int = CACHE_TTL):
     return result
 
 
+def cached_json(key: str, fn, ttl: int = CACHE_TTL):
+    """Like cached() but returns a Flask Response with gzip-friendly Cache-Control."""
+    from flask import make_response
+    data = cached(key, fn, ttl)
+    resp = make_response(jsonify(data))
+    resp.headers["Cache-Control"] = f"public, max-age={ttl}"
+    return resp
+    return result
+
+
 def bust_cache(*keys):
     """Invalidate specific cache keys (or all if none given)."""
     with _CACHE_LOCK:
@@ -111,6 +123,14 @@ def bust_cache(*keys):
                 _CACHE.pop(k, None)
         else:
             _CACHE.clear()
+
+
+@app.after_request
+def add_cache_headers(response):
+    """Add Cache-Control to API responses so Cloudflare/browser can cache them."""
+    if request.path.startswith("/api/"):
+        response.headers.setdefault("Cache-Control", f"public, max-age={CACHE_TTL}")
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -507,25 +527,27 @@ def _current_format_cutoff():
     """Return (format_name, since, until) for the current Standard format.
     Falls back to the previous format if no majors have occurred yet in the
     newest set — so we never serve an empty meta page.
+    Result is cached for CACHE_TTL seconds so the SELECT 1 probe doesn't
+    fire on every /api/meta request.
     """
-    fmts  = _load_formats()
-    today = date.today().isoformat()
-    active = [x for x in fmts if x['start'] <= today]
-    if not active:
-        return fmts[0]['name'], fmts[0]['start'], None
+    def _resolve():
+        fmts  = _load_formats()
+        today = date.today().isoformat()
+        active = [x for x in fmts if x['start'] <= today]
+        if not active:
+            return fmts[0]['name'], fmts[0]['start'], None
+        current = active[-1]
+        prev    = active[-2] if len(active) >= 2 else current
+        rows = query(
+            f"SELECT 1 FROM PTCG_SCOUTING.{MARTS}.MAJOR_PLAYER_HISTORY"
+            f" WHERE tournament_date >= %s LIMIT 1",
+            (current['start'],),
+        )
+        use   = current if rows else prev
+        until = current['start'] if use is prev else None
+        return use['name'], use['start'], until
 
-    current = active[-1]
-    prev    = active[-2] if len(active) >= 2 else current
-
-    rows = query(
-        f"SELECT 1 FROM PTCG_SCOUTING.{MARTS}.MAJOR_PLAYER_HISTORY"
-        f" WHERE tournament_date >= %s LIMIT 1",
-        (current['start'],),
-    )
-    use = current if rows else prev
-    # Current format has no upper bound; if we fell back, cap at current format's start
-    until = current['start'] if use is prev else None
-    return use['name'], use['start'], until
+    return cached("current_format_cutoff", _resolve)
 
 
 @app.get("/api/formats")
