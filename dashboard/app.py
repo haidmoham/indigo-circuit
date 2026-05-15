@@ -609,5 +609,232 @@ def gym_leaders_data():
     return jsonify(rows)
 
 
+# ---------------------------------------------------------------------------
+# OG image  (/og-image.png)
+# ---------------------------------------------------------------------------
+import io
+import time
+from PIL import Image as PilImage, ImageDraw, ImageFont
+
+_OG_CACHE: dict = {}          # { 'img': bytes, 'ts': float }
+_OG_TTL   = 300               # regenerate every 5 min
+
+_STATIC = os.path.join(os.path.dirname(__file__), "static")
+
+def _load_font(name: str, size: int):
+    path = os.path.join(_STATIC, name)
+    try:
+        return ImageFont.truetype(path, size)
+    except Exception:
+        return ImageFont.load_default()
+
+
+def _hex(h: str):
+    h = h.lstrip("#")
+    return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
+
+
+def _build_og_image() -> bytes:
+    W, H = 1200, 630
+    BG      = _hex("07051a")
+    SURFACE = _hex("0e0c26")
+    BORDER  = _hex("2b2760")
+    VIOLET  = _hex("a07cf8")
+    ELECTRIC= _hex("ffd600")
+    MUTED   = _hex("7b72b0")
+    GREEN   = _hex("57f287")
+    WHITE   = _hex("ede9ff")
+    GOLD    = _hex("ffab00")
+
+    img  = PilImage.new("RGBA", (W, H), BG + (255,))
+    draw = ImageDraw.Draw(img)
+
+    # Subtle dot grid
+    for gx in range(0, W, 28):
+        for gy in range(0, H, 28):
+            draw.ellipse([gx-1, gy-1, gx+1, gy+1],
+                         fill=VIOLET + (28,))
+
+    # Subtle glow — bottom-left corner only, kept well away from text
+    for r in range(200, 0, -4):
+        alpha = max(0, int(10 * (1 - r / 200)))
+        draw.ellipse([0-r, H-r, 0+r, H+r],
+                     fill=VIOLET + (alpha,))
+
+    f_huge  = _load_font("nunito_900.ttf", 72)
+    f_large = _load_font("nunito_900.ttf", 48)
+    f_med   = _load_font("nunito_800.ttf", 32)
+    f_small = _load_font("nunito_800.ttf", 22)
+    f_tiny  = _load_font("nunito_800.ttf", 18)
+
+    # ── Left column: branding ─────────────────────────────────────────────
+    PAD = 72
+    y   = 120
+
+    # "INDIGO" in violet, "CIRCUIT" in electric
+    draw.text((PAD, y), "INDIGO ", font=f_huge, fill=VIOLET + (255,))
+    w_indigo = draw.textlength("INDIGO ", font=f_huge)
+    draw.text((PAD + w_indigo, y), "CIRCUIT", font=f_huge, fill=ELECTRIC + (255,))
+
+    y += 86
+    draw.text((PAD, y), "Welcome to the Circuit", font=f_med, fill=MUTED + (255,))
+
+    y += 52
+    draw.text((PAD, y), "Competitive Pokémon TCG Intelligence", font=f_small, fill=MUTED + (200,))
+
+    # Thin separator line
+    y += 48
+    draw.line([(PAD, y), (530, y)], fill=BORDER + (200,), width=1)
+
+    y += 24
+    draw.text((PAD, y), "Rankings  ·  Meta  ·  Tech Scouting  ·  Glicko-2 Online", font=f_tiny, fill=MUTED + (160,))
+
+    # ── Right column: Champion card ───────────────────────────────────────
+    CARD_X, CARD_Y = 660, 90
+    CARD_W, CARD_H = 465, 448
+    RADIUS = 18
+
+    # Card shadow
+    shadow_offset = 8
+    for i in range(12, 0, -1):
+        alpha = int(60 * (i / 12))
+        draw.rounded_rectangle(
+            [CARD_X + shadow_offset, CARD_Y + shadow_offset,
+             CARD_X + CARD_W + shadow_offset, CARD_Y + CARD_H + shadow_offset],
+            radius=RADIUS, fill=(0, 0, 0, alpha)
+        )
+
+    # Card background
+    draw.rounded_rectangle(
+        [CARD_X, CARD_Y, CARD_X + CARD_W, CARD_Y + CARD_H],
+        radius=RADIUS, fill=SURFACE + (255,),
+        outline=GOLD + (120,), width=2
+    )
+
+    # Gold top accent bar
+    draw.rounded_rectangle(
+        [CARD_X, CARD_Y, CARD_X + CARD_W, CARD_Y + 5],
+        radius=RADIUS, fill=GOLD + (200,)
+    )
+
+    # Champion badge
+    badge_x, badge_y = CARD_X + 22, CARD_Y + 26
+    badge_w = 160
+    draw.rounded_rectangle(
+        [badge_x, badge_y, badge_x + badge_w, badge_y + 30],
+        radius=5, fill=_hex("2a1a00") + (220,),
+        outline=GOLD + (160,), width=1
+    )
+    draw.text((badge_x + 8, badge_y + 6), "CHAMPION", font=f_tiny, fill=GOLD + (255,))
+
+    # Fetch champion data
+    champ = None
+    try:
+        rows = query(
+            f"""
+            SELECT sr.rank, sr.player_name, sr.country, sr.atp_score,
+                   sr.win_rate_pct, sr.top8s, sr.best_placing,
+                   sr.top_deck_name, sr.top_deck_sprite, sr.majors_counted
+            FROM PTCG_SCOUTING.{MARTS}.SEASONAL_RANKINGS sr
+            WHERE sr.rank = 1
+            LIMIT 1
+            """
+        )
+        champ = rows[0] if rows else None
+    except Exception:
+        pass
+
+    cx = CARD_X + CARD_W // 2
+    sprite_y = CARD_Y + 72
+
+    # Deck sprite
+    if champ:
+        sprite_url = champ.get("TOP_DECK_SPRITE") or champ.get("top_deck_sprite")
+        if not sprite_url:
+            # build from deck name
+            dn = (champ.get("TOP_DECK_NAME") or champ.get("top_deck_name") or "").lower()
+            dn = re.sub(r"\b\w+'\s*s\s+", "", dn)
+            dn = re.sub(r"\bmega\b|\bex\b|\bvstar\b|\bvmax\b|\bgx\b|\bv\b", "", dn)
+            dn = re.sub(r"[\s-]+", "-", dn.strip()).strip("-")
+            first = dn.split("-")[0]
+            sprite_url = f"https://r2.limitlesstcg.net/pokemon/gen9/{first}.png"
+        try:
+            resp = http.get(sprite_url, timeout=3)
+            if resp.status_code == 200:
+                spr = PilImage.open(io.BytesIO(resp.content)).convert("RGBA")
+                spr = spr.resize((96, 96), PilImage.LANCZOS)
+                img.paste(spr, (cx - 48, sprite_y), spr)
+        except Exception:
+            pass
+
+    name_y = sprite_y + 108
+    name  = (champ.get("PLAYER_NAME") or champ.get("player_name") or "—") if champ else "—"
+    deck  = (champ.get("TOP_DECK_NAME") or champ.get("top_deck_name") or "") if champ else ""
+    atp   = champ.get("ATP_SCORE") or champ.get("atp_score") if champ else None
+    wr    = champ.get("WIN_RATE_PCT") or champ.get("win_rate_pct") if champ else None
+    t8s   = champ.get("TOP8S") or champ.get("top8s") if champ else None
+    majors= champ.get("MAJORS_COUNTED") or champ.get("majors_counted") if champ else None
+
+    # Name — center it
+    name_w = draw.textlength(name, font=f_large)
+    draw.text((cx - name_w // 2, name_y), name, font=f_large, fill=WHITE + (255,))
+
+    if deck:
+        deck_w = draw.textlength(deck, font=f_small)
+        draw.text((cx - deck_w // 2, name_y + 58), deck,
+                  font=f_small, fill=GOLD + (200,))
+
+    # Divider
+    div_y = name_y + 100
+    draw.line([(CARD_X + 22, div_y), (CARD_X + CARD_W - 22, div_y)],
+              fill=BORDER + (180,), width=1)
+
+    # Stats grid — 3 cols
+    stats = [
+        (f"{atp:.1f}" if atp is not None else "—",  "ATP Score",  GOLD),
+        (f"{wr}%"      if wr   is not None else "—", "Win Rate",   GREEN),
+        (str(t8s)      if t8s  is not None else "—", "Top 8s",     VIOLET),
+    ]
+    col_w = CARD_W // 3
+    for i, (val, label, color) in enumerate(stats):
+        sx = CARD_X + col_w * i + col_w // 2
+        sy = div_y + 20
+        val_w = draw.textlength(val, font=f_med)
+        draw.text((sx - val_w // 2, sy), val, font=f_med, fill=color + (255,))
+        lbl_w = draw.textlength(label, font=f_tiny)
+        draw.text((sx - lbl_w // 2, sy + 40), label, font=f_tiny, fill=MUTED + (200,))
+
+    # Footer: majors count
+    if majors:
+        foot = f"{majors} major tournaments"
+        fw = draw.textlength(foot, font=f_tiny)
+        draw.text((cx - fw // 2, div_y + 108), foot, font=f_tiny, fill=MUTED + (160,))
+
+    # Favicon bottom-left corner
+    try:
+        fav = PilImage.open(os.path.join(_STATIC, "favicon.png")).convert("RGBA")
+        fav = fav.resize((40, 40), PilImage.NEAREST)
+        img.paste(fav, (PAD, H - 64), fav)
+    except Exception:
+        pass
+
+    draw.text((PAD + 52, H - 54), "indigocircuit", font=f_small, fill=VIOLET + (180,))
+
+    out = io.BytesIO()
+    img.convert("RGB").save(out, format="PNG", optimize=True)
+    return out.getvalue()
+
+
+@app.get("/og-image.png")
+def og_image():
+    from flask import Response
+    now = time.time()
+    if "img" not in _OG_CACHE or now - _OG_CACHE["ts"] > _OG_TTL:
+        _OG_CACHE["img"] = _build_og_image()
+        _OG_CACHE["ts"]  = now
+    return Response(_OG_CACHE["img"], mimetype="image/png",
+                    headers={"Cache-Control": f"public, max-age={_OG_TTL}"})
+
+
 if __name__ == "__main__":
     app.run(debug=True, port=5001)
