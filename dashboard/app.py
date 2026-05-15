@@ -5,6 +5,8 @@ Reads from Snowflake PTCG_SCOUTING via environment variables.
 import json
 import os
 import re
+import threading
+import time
 from datetime import date
 from urllib.parse import quote as urlquote
 
@@ -21,7 +23,15 @@ app = Flask(__name__)
 MARTS = os.environ.get("DBT_MARTS_SCHEMA", "DBT_DEV_MARTS")
 
 
-def get_conn():
+# ---------------------------------------------------------------------------
+# Persistent Snowflake connection (one per worker process)
+# Eliminates the ~1-2s connect overhead on every request.
+# ---------------------------------------------------------------------------
+_conn_lock = threading.Lock()
+_conn: snowflake.connector.SnowflakeConnection | None = None
+
+
+def _connect():
     return snowflake.connector.connect(
         account=os.environ["SNOWFLAKE_ACCOUNT"],
         user=os.environ["SNOWFLAKE_USER"],
@@ -29,18 +39,78 @@ def get_conn():
         database=os.environ.get("SNOWFLAKE_DATABASE", "PTCG_SCOUTING"),
         warehouse=os.environ.get("SNOWFLAKE_WAREHOUSE", "COMPUTE_WH"),
         role=os.environ.get("SNOWFLAKE_ROLE", "ACCOUNTADMIN"),
+        # Keep the session alive so the warehouse doesn't suspend mid-use
+        client_session_keep_alive=True,
     )
 
 
+def get_conn() -> snowflake.connector.SnowflakeConnection:
+    global _conn
+    with _conn_lock:
+        try:
+            if _conn and not _conn.is_closed():
+                return _conn
+        except Exception:
+            pass
+        _conn = _connect()
+        return _conn
+
+
 def query(sql, params=None):
-    conn = get_conn()
-    cur = conn.cursor(snowflake.connector.DictCursor)
-    try:
-        cur.execute(sql, params or ())
-        return cur.fetchall()
-    finally:
-        cur.close()
-        conn.close()
+    """Execute SQL and return list-of-dicts. Reconnects once on failure."""
+    for attempt in range(2):
+        conn = get_conn()
+        cur = conn.cursor(snowflake.connector.DictCursor)
+        try:
+            cur.execute(sql, params or ())
+            return cur.fetchall()
+        except Exception:
+            cur.close()
+            if attempt == 0:
+                # Force reconnect and retry once
+                with _conn_lock:
+                    global _conn
+                    _conn = None
+            else:
+                raise
+        finally:
+            try:
+                cur.close()
+            except Exception:
+                pass
+
+
+# ---------------------------------------------------------------------------
+# TTL result cache
+# Data changes at most once a day (overnight ingests), so 5-min cache makes
+# repeat page loads near-instant while staying fresh enough for live use.
+# ---------------------------------------------------------------------------
+_CACHE: dict = {}
+_CACHE_LOCK = threading.Lock()
+CACHE_TTL = int(os.environ.get("CACHE_TTL", 300))   # default 5 minutes
+
+
+def cached(key: str, fn, ttl: int = CACHE_TTL):
+    """Return cached value for *key*, or call *fn()* and cache the result."""
+    now = time.monotonic()
+    with _CACHE_LOCK:
+        entry = _CACHE.get(key)
+        if entry and now - entry["ts"] < ttl:
+            return entry["v"]
+    result = fn()
+    with _CACHE_LOCK:
+        _CACHE[key] = {"v": result, "ts": time.monotonic()}
+    return result
+
+
+def bust_cache(*keys):
+    """Invalidate specific cache keys (or all if none given)."""
+    with _CACHE_LOCK:
+        if keys:
+            for k in keys:
+                _CACHE.pop(k, None)
+        else:
+            _CACHE.clear()
 
 
 # ---------------------------------------------------------------------------
@@ -279,7 +349,8 @@ def player_stats(name):
 
 @app.get("/api/online/leaderboard")
 def online_leaderboard():
-    rows = query(
+    def _fetch():
+        return query(
         f"""
         WITH top_decks AS (
             SELECT player_username, deck_name, deck_id,
@@ -310,14 +381,15 @@ def online_leaderboard():
         ORDER BY pe.glicko_rating_low DESC
         LIMIT 100
         """
-    )
-    return jsonify(rows)
+        )
+    return jsonify(cached("online_leaderboard", _fetch))
 
 
 @app.get("/api/online/archetype-aces")
 def online_archetype_aces():
     """Top online player per archetype, ranked by win rate (min 3 events with that deck)."""
-    rows = query(
+    def _fetch():
+        return query(
         f"""
         WITH ranked AS (
             SELECT
@@ -347,49 +419,51 @@ def online_archetype_aces():
         ORDER BY times_played DESC
         LIMIT 8
         """
-    )
-    return jsonify(rows)
+        )
+    return jsonify(cached("online_aces", _fetch))
 
 
 @app.get("/api/tech/decks")
 def tech_decks():
-    rows = query(
-        f"""
-        SELECT cas.deck_id,
-               MAX(pah.deck_name) AS deck_name,
-               MAX(cas.total_lists) AS total_lists
-        FROM PTCG_SCOUTING.{MARTS}.CARD_ARCHETYPE_STATS cas
-        LEFT JOIN PTCG_SCOUTING.{MARTS}.PLAYER_ARCHETYPE_HISTORY pah
-          ON cas.deck_id = pah.deck_id
-        GROUP BY cas.deck_id
-        HAVING MAX(cas.total_lists) >= 3
-        ORDER BY MAX(cas.total_lists) DESC
-        LIMIT 60
-        """
-    )
-    return jsonify(rows)
+    def _fetch():
+        return query(
+            f"""
+            SELECT cas.deck_id,
+                   MAX(pah.deck_name) AS deck_name,
+                   MAX(cas.total_lists) AS total_lists
+            FROM PTCG_SCOUTING.{MARTS}.CARD_ARCHETYPE_STATS cas
+            LEFT JOIN PTCG_SCOUTING.{MARTS}.PLAYER_ARCHETYPE_HISTORY pah
+              ON cas.deck_id = pah.deck_id
+            GROUP BY cas.deck_id
+            HAVING MAX(cas.total_lists) >= 3
+            ORDER BY MAX(cas.total_lists) DESC
+            LIMIT 60
+            """
+        )
+    return jsonify(cached("tech_decks", _fetch))
 
 
 @app.get("/api/tech/<path:deck_id>")
 def tech_cards(deck_id):
-    rows = query(
-        f"""
-        SELECT card_category,
-               card_name,
-               card_set,
-               lists_with_card,
-               total_lists,
-               round(inclusion_rate * 100, 1)       AS inclusion_pct,
-               round(avg_count_when_included, 2)     AS avg_copies,
-               is_tech_card
-        FROM PTCG_SCOUTING.{MARTS}.CARD_ARCHETYPE_STATS
-        WHERE deck_id = %s
-        ORDER BY card_category,
-                 inclusion_rate DESC
-        """,
-        (deck_id,),
-    )
-    return jsonify(rows)
+    def _fetch():
+        return query(
+            f"""
+            SELECT card_category,
+                   card_name,
+                   card_set,
+                   lists_with_card,
+                   total_lists,
+                   round(inclusion_rate * 100, 1)       AS inclusion_pct,
+                   round(avg_count_when_included, 2)     AS avg_copies,
+                   is_tech_card
+            FROM PTCG_SCOUTING.{MARTS}.CARD_ARCHETYPE_STATS
+            WHERE deck_id = %s
+            ORDER BY card_category,
+                     inclusion_rate DESC
+            """,
+            (deck_id,),
+        )
+    return jsonify(cached(f"tech:{deck_id}", _fetch))
 
 
 @app.get("/api/player/<username>/vs/<opponent>")
@@ -465,45 +539,49 @@ def formats_list():
 
 @app.get("/api/meta")
 def meta_stats():
-    since_override = request.args.get("since")   # e.g. ?since=2026-04-25
+    since_override = request.args.get("since")
     if since_override:
         fmt_name, cutoff, until = _format_window(since_override)
     else:
         fmt_name, cutoff, until = _current_format_cutoff()
 
+    cache_key = f"meta:{cutoff}"
     until_clause = "AND tournament_date < %s" if until else ""
     params = (cutoff, until) if until else (cutoff,)
 
-    rows = query(
-        f"""
-        SELECT deck_name,
-               max(deck_sprite)                                                as deck_sprite,
-               count(*)                                                        as appearances,
-               round(avg(placing), 1)                                          as avg_placement,
-               sum(case when placing <= 8 then 1 else 0 end)                   as top8s,
-               round(
-                   sum(case when placing <= 8 then 1 else 0 end)::float
-                   / nullif(count(*), 0), 3
-               )                                                               as top8_rate,
-               -- Day 2 proxy: top ~20 pct of field advances in a standard Swiss Regional.
-               -- player_count * 0.20, floored at 32, is a reasonable threshold.
-               round(
-                   sum(case when placing <= greatest(32, round(player_count * 0.20))
-                            then 1 else 0 end)::float
-                   / nullif(count(*), 0), 3
-               )                                                               as day2_rate,
-               min(placing)                                                    as best_placing
-        FROM PTCG_SCOUTING.{MARTS}.MAJOR_PLAYER_HISTORY
-        WHERE deck_name is not null
-          AND tournament_date >= %s
-          {until_clause}
-        GROUP BY deck_name
-        ORDER BY appearances DESC
-        LIMIT 30
-        """,
-        params,
-    )
-    return jsonify({"format": {"name": fmt_name, "since": cutoff}, "archetypes": rows})
+    def _fetch():
+        rows = query(
+            f"""
+            SELECT deck_name,
+                   max(deck_sprite)                                                as deck_sprite,
+                   count(*)                                                        as appearances,
+                   round(avg(placing), 1)                                          as avg_placement,
+                   sum(case when placing <= 8 then 1 else 0 end)                   as top8s,
+                   round(
+                       sum(case when placing <= 8 then 1 else 0 end)::float
+                       / nullif(count(*), 0), 3
+                   )                                                               as top8_rate,
+                   -- Day 2 proxy: top ~20 pct of field advances in a standard Swiss Regional.
+                   -- player_count * 0.20, floored at 32, is a reasonable threshold.
+                   round(
+                       sum(case when placing <= greatest(32, round(player_count * 0.20))
+                                then 1 else 0 end)::float
+                       / nullif(count(*), 0), 3
+                   )                                                               as day2_rate,
+                   min(placing)                                                    as best_placing
+            FROM PTCG_SCOUTING.{MARTS}.MAJOR_PLAYER_HISTORY
+            WHERE deck_name is not null
+              AND tournament_date >= %s
+              {until_clause}
+            GROUP BY deck_name
+            ORDER BY appearances DESC
+            LIMIT 30
+            """,
+            params,
+        )
+        return {"format": {"name": fmt_name, "since": cutoff}, "archetypes": rows}
+
+    return jsonify(cached(cache_key, _fetch))
 
 
 @app.get("/api/meta/top-finishes")
@@ -514,60 +592,64 @@ def meta_top_finishes():
     else:
         _, cutoff, until = _current_format_cutoff()
 
+    cache_key = f"meta_finishes:{cutoff}"
     until_clause = "AND tournament_date < %s" if until else ""
     params = (cutoff, until) if until else (cutoff,)
 
-    rows = query(
-        f"""
-        SELECT deck_name, player_name, player_id, placing,
-               tournament_name, tournament_date, tournament_id
-        FROM PTCG_SCOUTING.{MARTS}.MAJOR_PLAYER_HISTORY
-        WHERE deck_name IS NOT NULL
-          AND placing <= 8
-          AND tournament_date >= %s
-          {until_clause}
-        ORDER BY deck_name, placing, tournament_date DESC
-        LIMIT 500
-        """,
-        params,
-    )
-    result: dict = {}
-    for r in rows:
-        dk = r.get("DECK_NAME") or r.get("deck_name", "")
-        if dk not in result:
-            result[dk] = []
-        result[dk].append({
-            "player_name":     r.get("PLAYER_NAME")     or r.get("player_name", ""),
-            "player_id":       r.get("PLAYER_ID")       or r.get("player_id"),
-            "placing":         r.get("PLACING")         or r.get("placing"),
-            "tournament_name": r.get("TOURNAMENT_NAME") or r.get("tournament_name", ""),
-            "tournament_id":   r.get("TOURNAMENT_ID")   or r.get("tournament_id", ""),
-        })
-    return jsonify(result)
+    def _fetch():
+        rows = query(
+            f"""
+            SELECT deck_name, player_name, player_id, placing,
+                   tournament_name, tournament_date, tournament_id
+            FROM PTCG_SCOUTING.{MARTS}.MAJOR_PLAYER_HISTORY
+            WHERE deck_name IS NOT NULL
+              AND placing <= 8
+              AND tournament_date >= %s
+              {until_clause}
+            ORDER BY deck_name, placing, tournament_date DESC
+            LIMIT 500
+            """,
+            params,
+        )
+        result: dict = {}
+        for r in rows:
+            dk = r.get("DECK_NAME") or r.get("deck_name", "")
+            if dk not in result:
+                result[dk] = []
+            result[dk].append({
+                "player_name":     r.get("PLAYER_NAME")     or r.get("player_name", ""),
+                "player_id":       r.get("PLAYER_ID")       or r.get("player_id"),
+                "placing":         r.get("PLACING")         or r.get("placing"),
+                "tournament_name": r.get("TOURNAMENT_NAME") or r.get("tournament_name", ""),
+                "tournament_id":   r.get("TOURNAMENT_ID")   or r.get("tournament_id", ""),
+            })
+        return result
+
+    return jsonify(cached(cache_key, _fetch))
 
 
 @app.get("/api/leaderboard")
 def leaderboard_data():
-    # Rankings from majors only — ATP-style seasonal points with gym leader join
-    rows = query(
-        f"""
-        SELECT sr.rank, sr.player_name, sr.player_id, sr.country,
-               sr.majors_counted, sr.win_rate_pct, sr.best_placing,
-               sr.top8s, sr.top16s, sr.worlds_top8s, sr.ic_top8s, sr.regional_top8s,
-               sr.atp_score, sr.avg_placement_pct,
-               sr.last_played, sr.title,
-               sr.worlds_score, sr.ic_score, sr.regional_score,
-               sr.top_deck_name, sr.top_deck_sprite,
-               mgl.archetype AS gym_leader_of
-        FROM PTCG_SCOUTING.{MARTS}.SEASONAL_RANKINGS sr
-        LEFT JOIN PTCG_SCOUTING.{MARTS}.MAJOR_GYM_LEADERS mgl
-          ON lower(sr.player_name) = lower(mgl.player_name)
-          AND mgl.is_gym_leader = TRUE
-        ORDER BY sr.rank
-        LIMIT 100
-        """
-    )
-    return jsonify(rows)
+    def _fetch():
+        return query(
+            f"""
+            SELECT sr.rank, sr.player_name, sr.player_id, sr.country,
+                   sr.majors_counted, sr.win_rate_pct, sr.best_placing,
+                   sr.top8s, sr.top16s, sr.worlds_top8s, sr.ic_top8s, sr.regional_top8s,
+                   sr.atp_score, sr.avg_placement_pct,
+                   sr.last_played, sr.title,
+                   sr.worlds_score, sr.ic_score, sr.regional_score,
+                   sr.top_deck_name, sr.top_deck_sprite,
+                   mgl.archetype AS gym_leader_of
+            FROM PTCG_SCOUTING.{MARTS}.SEASONAL_RANKINGS sr
+            LEFT JOIN PTCG_SCOUTING.{MARTS}.MAJOR_GYM_LEADERS mgl
+              ON lower(sr.player_name) = lower(mgl.player_name)
+              AND mgl.is_gym_leader = TRUE
+            ORDER BY sr.rank
+            LIMIT 100
+            """
+        )
+    return jsonify(cached("leaderboard", _fetch))
 
 
 @app.get("/api/player-card/<name>")
@@ -595,25 +677,24 @@ def player_card(name):
 
 @app.get("/api/gym-leaders")
 def gym_leaders_data():
-    # Gym Leaders from majors only
-    rows = query(
-        f"""
-        SELECT archetype, deck_sprite, player_name, player_id,
-               tournament_count, win_rate_pct, gym_leader_score, last_played
-        FROM PTCG_SCOUTING.{MARTS}.MAJOR_GYM_LEADERS
-        WHERE is_gym_leader = TRUE
-        ORDER BY gym_leader_score DESC
-        LIMIT 30
-        """
-    )
-    return jsonify(rows)
+    def _fetch():
+        return query(
+            f"""
+            SELECT archetype, deck_sprite, player_name, player_id,
+                   tournament_count, win_rate_pct, gym_leader_score, last_played
+            FROM PTCG_SCOUTING.{MARTS}.MAJOR_GYM_LEADERS
+            WHERE is_gym_leader = TRUE
+            ORDER BY gym_leader_score DESC
+            LIMIT 30
+            """
+        )
+    return jsonify(cached("gym_leaders", _fetch))
 
 
 # ---------------------------------------------------------------------------
 # OG image  (/og-image.png)
 # ---------------------------------------------------------------------------
 import io
-import time
 from PIL import Image as PilImage, ImageDraw, ImageFont
 
 _OG_CACHE: dict = {}          # { 'img': bytes, 'ts': float }
@@ -834,6 +915,33 @@ def og_image():
         _OG_CACHE["ts"]  = now
     return Response(_OG_CACHE["img"], mimetype="image/png",
                     headers={"Cache-Control": f"public, max-age={_OG_TTL}"})
+
+
+# ---------------------------------------------------------------------------
+# Startup pre-warm
+# Populate the cache in the background so the first real visitor is fast.
+# Runs once per worker process 3s after import.
+# ---------------------------------------------------------------------------
+def _prewarm():
+    time.sleep(3)   # let gunicorn finish binding before we hit Snowflake
+    tasks = [
+        ("leaderboard",     lambda: app.test_client().get("/api/leaderboard")),
+        ("gym_leaders",     lambda: app.test_client().get("/api/gym-leaders")),
+        ("online_lb",       lambda: app.test_client().get("/api/online/leaderboard")),
+        ("online_aces",     lambda: app.test_client().get("/api/online/archetype-aces")),
+        ("meta",            lambda: app.test_client().get("/api/meta")),
+        ("meta_finishes",   lambda: app.test_client().get("/api/meta/top-finishes")),
+        ("tech_decks",      lambda: app.test_client().get("/api/tech/decks")),
+    ]
+    for name, fn in tasks:
+        try:
+            fn()
+        except Exception:
+            pass   # pre-warm is best-effort; real requests still work
+
+
+_prewarm_thread = threading.Thread(target=_prewarm, daemon=True)
+_prewarm_thread.start()
 
 
 if __name__ == "__main__":
