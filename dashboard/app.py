@@ -758,11 +758,10 @@ def _build_og_image() -> bytes:
             draw.ellipse([gx-1, gy-1, gx+1, gy+1],
                          fill=VIOLET + (28,))
 
-    # Subtle glow — bottom-left corner only, kept well away from text
-    for r in range(200, 0, -4):
-        alpha = max(0, int(10 * (1 - r / 200)))
-        draw.ellipse([0-r, H-r, 0+r, H+r],
-                     fill=VIOLET + (alpha,))
+    # Faint radial glow top-left — purely atmospheric, well clear of text
+    for r in range(280, 0, -4):
+        alpha = max(0, int(7 * (1 - r / 280)))
+        draw.ellipse([-r, -r, r, r], fill=VIOLET + (alpha,))
 
     f_huge  = _load_font("nunito_900.ttf", 72)
     f_large = _load_font("nunito_900.ttf", 48)
@@ -770,27 +769,19 @@ def _build_og_image() -> bytes:
     f_small = _load_font("nunito_800.ttf", 22)
     f_tiny  = _load_font("nunito_800.ttf", 18)
 
-    # ── Left column: branding ─────────────────────────────────────────────
+    # ── Left column: wordmark + single tagline ────────────────────────────
     PAD = 72
-    y   = 120
 
-    # "INDIGO" in violet, "CIRCUIT" in electric
+    # Vertically center the two-line block
+    y = 220
+
+    # "INDIGO" violet · "CIRCUIT" electric
     draw.text((PAD, y), "INDIGO ", font=f_huge, fill=VIOLET + (255,))
     w_indigo = draw.textlength("INDIGO ", font=f_huge)
     draw.text((PAD + w_indigo, y), "CIRCUIT", font=f_huge, fill=ELECTRIC + (255,))
 
-    y += 86
-    draw.text((PAD, y), "Welcome to the Circuit", font=f_med, fill=MUTED + (255,))
-
-    y += 52
-    draw.text((PAD, y), "Competitive Pokémon TCG Intelligence", font=f_small, fill=MUTED + (200,))
-
-    # Thin separator line
-    y += 48
-    draw.line([(PAD, y), (530, y)], fill=BORDER + (200,), width=1)
-
-    y += 24
-    draw.text((PAD, y), "Rankings  ·  Meta  ·  Tech Scouting  ·  Glicko-2 Online", font=f_tiny, fill=MUTED + (160,))
+    y += 90
+    draw.text((PAD, y), "welcome to the circuit", font=f_small, fill=MUTED + (200,))
 
     # ── Right column: Champion card ───────────────────────────────────────
     CARD_X, CARD_Y = 660, 90
@@ -913,15 +904,8 @@ def _build_og_image() -> bytes:
         fw = draw.textlength(foot, font=f_tiny)
         draw.text((cx - fw // 2, div_y + 108), foot, font=f_tiny, fill=MUTED + (160,))
 
-    # Favicon bottom-left corner
-    try:
-        fav = PilImage.open(os.path.join(_STATIC, "favicon.png")).convert("RGBA")
-        fav = fav.resize((40, 40), PilImage.NEAREST)
-        img.paste(fav, (PAD, H - 64), fav)
-    except Exception:
-        pass
-
-    draw.text((PAD + 52, H - 54), "indigocircuit", font=f_small, fill=VIOLET + (180,))
+    # Subtle domain watermark — small, bottom-left, just enough to brand
+    draw.text((PAD, H - 44), "indigocircuit.app", font=f_tiny, fill=MUTED + (100,))
 
     out = io.BytesIO()
     img.convert("RGB").save(out, format="PNG", optimize=True)
