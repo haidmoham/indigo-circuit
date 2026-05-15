@@ -1,48 +1,220 @@
 {% extends "base.html" %}
-{% block title %}PTCG Scout — Meta Overview{% endblock %}
+{% block title %}Indigo Circuit — Meta{% endblock %}
 
 {% block content %}
-<h2 style="margin-bottom:1.5rem">Meta Overview <span style="color:var(--muted); font-weight:400; font-size:1rem">— last 3 months</span></h2>
-<div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem">
-  <div class="card">
-    <h3 style="margin-bottom:1rem">Archetype Popularity</h3>
-    <div id="chart-popularity"></div>
+<div id="loading" style="color:var(--muted);padding:2rem 0;font-weight:700;
+     letter-spacing:0.06em;text-transform:uppercase;font-size:0.8rem">
+  Loading meta…
+</div>
+
+<div id="meta-wrap" style="display:none">
+
+  <!-- Header -->
+  <div style="display:flex;align-items:flex-end;justify-content:space-between;
+              flex-wrap:wrap;gap:1rem;margin-bottom:2rem">
+    <div>
+      <h1 style="font-size:1.6rem;font-weight:900;line-height:1.1">Meta Breakdown</h1>
+      <p id="format-label" style="color:var(--muted);font-size:0.8rem;font-weight:600;
+         margin-top:0.25rem;letter-spacing:0.04em;text-transform:uppercase"></p>
+    </div>
+    <div id="meta-summary" style="display:flex;gap:1.5rem;flex-wrap:wrap"></div>
   </div>
-  <div class="card">
-    <h3 style="margin-bottom:1rem">Win Rate by Archetype</h3>
-    <div id="chart-winrate"></div>
+
+  <!-- Archetype cards -->
+  <div id="archetype-grid"
+       style="display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));
+              gap:1rem;margin-bottom:3rem"></div>
+
+  <!-- Charts -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin-bottom:2rem">
+    <div class="card">
+      <div class="card-title">Meta Share</div>
+      <div id="chart-share"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">Win Rate vs. Popularity</div>
+      <div id="chart-bubble"></div>
+    </div>
   </div>
+
 </div>
 {% endblock %}
 
 {% block scripts %}
 async function load() {
-  const rows = await fetch('/api/meta').then(r => r.json());
-  const names = rows.map(r => r.DECK_NAME);
+  const [meta, finishes] = await Promise.all([
+    fetch('/api/meta').then(r => r.json()),
+    fetch('/api/meta/top-finishes').then(r => r.json()),
+  ]);
 
-  Plotly.newPlot('chart-popularity', [{
-    x: rows.map(r => r.APPEARANCES), y: names,
-    type: 'bar', orientation: 'h',
-    marker: { color: '#e63946' },
-  }], {
-    paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
-    font: { color: '#e8eaf0' },
-    xaxis: { title: 'Tournament appearances' },
-    yaxis: { autorange: 'reversed' },
-    margin: { t: 10, l: 160 },
+  const fmt   = meta.format;
+  const decks = meta.archetypes;
+
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('meta-wrap').style.display = '';
+
+  // Format label
+  const sinceDate = new Date(fmt.since + 'T00:00:00');
+  const sinceStr  = sinceDate.toLocaleDateString('en-US', { month:'short', day:'numeric', year:'numeric' });
+  document.getElementById('format-label').textContent =
+    `${fmt.name} · Since ${sinceStr}`;
+
+  // Summary strip
+  const totalEntries = decks.reduce((s, d) => s + (d.APPEARANCES || 0), 0);
+  const highestWR    = decks.reduce((best, d) =>
+    (d.WIN_RATE || 0) > (best.WIN_RATE || 0) ? d : best, decks[0]);
+  const mostPlayed   = decks[0];
+
+  document.getElementById('meta-summary').innerHTML = [
+    { label: 'Archetypes', val: decks.length,               color: 'var(--violet)' },
+    { label: 'Field Entries', val: totalEntries.toLocaleString(), color: 'var(--muted)' },
+    { label: 'Most Played',  val: mostPlayed?.DECK_NAME || '—', color: 'var(--electric)' },
+    { label: 'Highest WR',   val: highestWR?.DECK_NAME  || '—', color: 'var(--green)'    },
+  ].map(({ label, val, color }) => `
+    <div style="text-align:right">
+      <div style="font-size:0.95rem;font-weight:900;color:${color}">${val}</div>
+      <div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;
+                  letter-spacing:0.07em;margin-top:0.1rem">${label}</div>
+    </div>`
+  ).join('');
+
+  // ── Archetype cards ──────────────────────────────────────────────────────
+  document.getElementById('archetype-grid').innerHTML = decks.map((d, idx) => {
+    const deckName   = d.DECK_NAME || '';
+    const deckSprite = d.DECK_SPRITE || null;
+    const sprite     = getSprite(deckSprite, deckName);
+    const theme      = getTheme({ TOP_DECK_SPRITE: deckSprite, TOP_DECK_NAME: deckName });
+
+    const appearances = d.APPEARANCES || 0;
+    const metaShare   = totalEntries ? ((appearances / totalEntries) * 100).toFixed(1) : '0.0';
+    const wr          = d.WIN_RATE != null ? (d.WIN_RATE * 100).toFixed(1) : null;
+    const top8Rate    = d.TOP8_RATE != null ? (d.TOP8_RATE * 100).toFixed(1) : null;
+    const top8s       = d.TOP8S ?? 0;
+    const best        = d.BEST_PLACING;
+
+    const topF = (finishes[deckName] || []).slice(0, 6);
+    const finisherHtml = topF.length
+      ? topF.map(f => {
+          const safe = JSON.stringify(f.player_name).replace(/"/g, '&quot;');
+          const medal = f.placing === 1 ? '🥇' : f.placing === 2 ? '🥈' : f.placing === 3 ? '🥉' : `${f.placing}.`;
+          return `<span style="white-space:nowrap">${medal} <span class="trainer-link"
+            onclick="showTrainerCard(${safe})"
+            style="font-size:0.72rem;font-weight:700">${f.player_name}</span></span>`;
+        }).join('<span style="color:var(--border);margin:0 0.2rem">·</span>')
+      : `<span style="color:var(--muted);font-size:0.72rem">No top 8s yet</span>`;
+
+    return `
+    <div style="
+      background:var(--surface);
+      border:1px solid ${theme.c}33;
+      border-top:3px solid ${theme.c};
+      border-radius:14px;
+      padding:1.1rem;
+      display:flex;flex-direction:column;gap:0.75rem;
+    ">
+      <!-- Sprite + name + rank -->
+      <div style="display:flex;align-items:center;gap:0.75rem">
+        ${sprite ? `<img src="${sprite}" alt="${deckName}"
+          style="width:52px;height:52px;object-fit:contain;image-rendering:pixelated;flex-shrink:0;
+                 filter:drop-shadow(0 0 6px ${theme.c}66);" onerror="this.style.display='none'">` : ''}
+        <div style="min-width:0;flex:1">
+          <div style="font-size:0.95rem;font-weight:900;color:${theme.c};
+                      white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${deckName}</div>
+          <div style="font-size:0.7rem;color:var(--muted);margin-top:0.1rem">
+            #${idx + 1} · ${metaShare}% of field
+          </div>
+        </div>
+        ${best === 1
+          ? `<span style="font-size:1.1rem" title="Tournament win">🏆</span>`
+          : best <= 4 ? `<span style="font-size:1rem" title="Top 4">🎖️</span>` : ''}
+      </div>
+
+      <!-- Meta share bar -->
+      <div style="background:rgba(255,255,255,0.06);border-radius:4px;height:4px;overflow:hidden">
+        <div style="width:${Math.min(parseFloat(metaShare) * 2.5, 100)}%;
+                    background:${theme.c};height:100%;border-radius:4px;
+                    transition:width 0.6s ease"></div>
+      </div>
+
+      <!-- Stats row -->
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.25rem;text-align:center">
+        <div>
+          <div style="font-size:1.05rem;font-weight:900;color:var(--green)">${wr != null ? wr + '%' : '—'}</div>
+          <div style="font-size:0.58rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em">Win Rate</div>
+        </div>
+        <div>
+          <div style="font-size:1.05rem;font-weight:900;color:var(--electric)">${top8Rate != null ? top8Rate + '%' : '—'}</div>
+          <div style="font-size:0.58rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em">T8 Conv</div>
+        </div>
+        <div>
+          <div style="font-size:1.05rem;font-weight:900;color:${theme.c}">${top8s}</div>
+          <div style="font-size:0.58rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em">Top 8s</div>
+        </div>
+      </div>
+
+      <!-- Top finishers -->
+      <div style="border-top:1px solid rgba(255,255,255,0.06);padding-top:0.6rem;
+                  font-size:0.72rem;line-height:1.7;color:var(--muted)">
+        ${finisherHtml}
+      </div>
+    </div>`;
+  }).join('');
+
+  // ── Charts ───────────────────────────────────────────────────────────────
+  const chartDecks  = [...decks].reverse();        // Plotly horizontal bars read bottom-up
+  const chartNames  = chartDecks.map(d => d.DECK_NAME);
+  const chartColors = chartDecks.map(d => {
+    const t = getTheme({ TOP_DECK_SPRITE: d.DECK_SPRITE, TOP_DECK_NAME: d.DECK_NAME });
+    return t.c;
   });
 
-  Plotly.newPlot('chart-winrate', [{
-    x: rows.map(r => r.WIN_RATE), y: names,
-    type: 'bar', orientation: 'h',
-    marker: { color: '#457b9d' },
-  }], {
+  const plotLayout = {
     paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
-    font: { color: '#e8eaf0' },
-    xaxis: { title: 'Win rate', tickformat: '.0%' },
-    yaxis: { autorange: 'reversed' },
-    margin: { t: 10, l: 160 },
-  });
+    font: { color: 'var(--text)', family: 'Nunito, sans-serif', size: 11 },
+    margin: { t: 8, b: 32, l: 150, r: 16 },
+    xaxis: { gridcolor: 'rgba(255,255,255,0.05)', zerolinecolor: 'rgba(255,255,255,0.1)' },
+    yaxis: { gridcolor: 'rgba(255,255,255,0.05)' },
+    hoverlabel: { bgcolor: '#1a1640', font: { color: '#fff', size: 12 } },
+  };
+
+  Plotly.newPlot('chart-share', [{
+    type: 'bar', orientation: 'h',
+    x: chartDecks.map(d => {
+      const total = decks.reduce((s, x) => s + (x.APPEARANCES || 0), 0);
+      return total ? +((d.APPEARANCES / total * 100).toFixed(1)) : 0;
+    }),
+    y: chartNames,
+    text: chartDecks.map(d => {
+      const total = decks.reduce((s, x) => s + (x.APPEARANCES || 0), 0);
+      return total ? ((d.APPEARANCES / total * 100).toFixed(1) + '%') : '';
+    }),
+    textposition: 'outside',
+    marker: { color: chartColors },
+    hovertemplate: '<b>%{y}</b><br>%{x}% of field<extra></extra>',
+  }], { ...plotLayout, xaxis: { ...plotLayout.xaxis, title: '% of field' } }, { displayModeBar: false });
+
+  Plotly.newPlot('chart-bubble', [{
+    type: 'scatter', mode: 'markers+text',
+    x: decks.map(d => d.APPEARANCES),
+    y: decks.map(d => d.WIN_RATE != null ? +(d.WIN_RATE * 100).toFixed(1) : null),
+    text: decks.map(d => d.DECK_NAME),
+    textposition: 'top center',
+    textfont: { size: 9 },
+    marker: {
+      size: decks.map(d => Math.max(8, Math.sqrt((d.TOP8S || 0) + 1) * 10)),
+      color: decks.map(d =>
+        getTheme({ TOP_DECK_SPRITE: d.DECK_SPRITE, TOP_DECK_NAME: d.DECK_NAME }).c
+      ),
+      opacity: 0.85,
+      line: { color: 'rgba(255,255,255,0.15)', width: 1 },
+    },
+    hovertemplate: '<b>%{text}</b><br>Entries: %{x}<br>WR: %{y}%<extra></extra>',
+  }], {
+    ...plotLayout,
+    margin: { t: 8, b: 40, l: 48, r: 16 },
+    xaxis: { ...plotLayout.xaxis, title: 'Tournament entries' },
+    yaxis: { ...plotLayout.yaxis, title: 'Win rate %' },
+  }, { displayModeBar: false });
 }
 
 load();

@@ -268,9 +268,9 @@ def head_to_head(username, opponent):
 
 
 def _current_format_cutoff():
-    """Return the start date of the current Standard format.
-    Falls back to the previous format's start if no majors have occurred yet
-    in the newest set — so we never serve an empty meta page.
+    """Return (format_name, start_date) for the current Standard format.
+    Falls back to the previous format if no majors have occurred yet in the
+    newest set — so we never serve an empty meta page.
     """
     fmts_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'formats.json')
     with open(fmts_path) as f:
@@ -279,34 +279,36 @@ def _current_format_cutoff():
     today = date.today().isoformat()
     active = [x for x in fmts if x['start'] <= today]
     if not active:
-        return fmts[0]['start']
+        return fmts[0]['name'], fmts[0]['start']
 
-    current_start = active[-1]['start']
-    prev_start    = active[-2]['start'] if len(active) >= 2 else current_start
+    current = active[-1]
+    prev    = active[-2] if len(active) >= 2 else current
 
-    # Check whether any major has been played in the current format window
     rows = query(
-        f"""
-        SELECT 1 FROM PTCG_SCOUTING.{MARTS}.MAJOR_PLAYER_HISTORY
-        WHERE tournament_date >= %s LIMIT 1
-        """,
-        (current_start,),
+        f"SELECT 1 FROM PTCG_SCOUTING.{MARTS}.MAJOR_PLAYER_HISTORY"
+        f" WHERE tournament_date >= %s LIMIT 1",
+        (current['start'],),
     )
-    return current_start if rows else prev_start
+    use = current if rows else prev
+    return use['name'], use['start']
 
 
 @app.get("/api/meta")
 def meta_stats():
-    # Restrict to current Standard format only; fall back to prior format if
-    # no majors have happened yet in the new set.
-    cutoff = _current_format_cutoff()
+    fmt_name, cutoff = _current_format_cutoff()
     rows = query(
         f"""
         SELECT deck_name,
+               max(deck_sprite)                                                as deck_sprite,
                count(*)                                                        as appearances,
                round(avg(placing), 1)                                          as avg_placement,
                round(sum(wins)::float / nullif(sum(wins) + sum(losses), 0), 3) as win_rate,
-               sum(case when placing <= 8 then 1 else 0 end)                   as top8s
+               sum(case when placing <= 8 then 1 else 0 end)                   as top8s,
+               round(
+                   sum(case when placing <= 8 then 1 else 0 end)::float
+                   / nullif(count(*), 0), 3
+               )                                                               as top8_rate,
+               min(placing)                                                    as best_placing
         FROM PTCG_SCOUTING.{MARTS}.MAJOR_PLAYER_HISTORY
         WHERE deck_name is not null
           AND tournament_date >= %s
@@ -316,7 +318,35 @@ def meta_stats():
         """,
         (cutoff,),
     )
-    return jsonify(rows)
+    return jsonify({"format": {"name": fmt_name, "since": cutoff}, "archetypes": rows})
+
+
+@app.get("/api/meta/top-finishes")
+def meta_top_finishes():
+    _, cutoff = _current_format_cutoff()
+    rows = query(
+        f"""
+        SELECT deck_name, player_name, placing, tournament_name, tournament_date
+        FROM PTCG_SCOUTING.{MARTS}.MAJOR_PLAYER_HISTORY
+        WHERE deck_name IS NOT NULL
+          AND placing <= 8
+          AND tournament_date >= %s
+        ORDER BY deck_name, placing, tournament_date DESC
+        LIMIT 500
+        """,
+        (cutoff,),
+    )
+    result: dict = {}
+    for r in rows:
+        dk = r.get("DECK_NAME") or r.get("deck_name", "")
+        if dk not in result:
+            result[dk] = []
+        result[dk].append({
+            "player_name":     r.get("PLAYER_NAME")     or r.get("player_name", ""),
+            "placing":         r.get("PLACING")         or r.get("placing"),
+            "tournament_name": r.get("TOURNAMENT_NAME") or r.get("tournament_name", ""),
+        })
+    return jsonify(result)
 
 
 @app.get("/api/leaderboard")
