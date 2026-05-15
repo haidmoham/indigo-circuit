@@ -357,6 +357,7 @@ def online_archetype_aces():
             LEFT JOIN PTCG_SCOUTING.{MARTS}.PLAYERS_ENRICHED pe
               ON pah.player_username = pe.player_username
             WHERE pah.times_played >= 3
+              AND pah.win_rate > 0.55
         )
         SELECT deck_id, deck_name, player_username, player_name, country,
                times_played, win_rate_pct, avg_placement, glicko_rating
