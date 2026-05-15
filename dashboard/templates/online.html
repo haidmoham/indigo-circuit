@@ -95,8 +95,8 @@ async function load() {
     const rowBg = rank === 1 ? 'background:rgba(255,171,0,0.05)'
                 : rank <= 3  ? 'background:rgba(92,53,232,0.05)' : '';
 
-    const displayName = name || username;
-    const safe = JSON.stringify(displayName).replace(/"/g, '&quot;');
+    const displayName   = name || username;
+    const limitlessUrl  = `https://limitlesstcg.com/players?q=${encodeURIComponent(displayName)}`;
 
     return `
     <tr style="border-bottom:1px solid rgba(255,255,255,0.05);transition:background 0.12s;${rowBg}"
@@ -106,7 +106,12 @@ async function load() {
         <span style="font-size:0.9rem;font-weight:${rankWeight};color:${rankColor}">${rank}</span>
       </td>
       <td style="padding:0.65rem 0.75rem">
-        <div style="font-weight:800;font-size:0.9rem">${displayName}</div>
+        <a href="${limitlessUrl}" target="_blank" rel="noopener"
+           style="font-weight:800;font-size:0.9rem;color:var(--text);text-decoration:none;
+                  border-bottom:1px solid rgba(255,255,255,0.15);transition:color 0.15s,border-color 0.15s"
+           onmouseover="this.style.color='var(--electric)';this.style.borderColor='var(--electric)'"
+           onmouseout="this.style.color='var(--text)';this.style.borderColor='rgba(255,255,255,0.15)'"
+        >${displayName}</a>
         ${username && username !== displayName
           ? `<div style="font-size:0.7rem;color:var(--muted);margin-top:0.1rem">@${username}</div>` : ''}
       </td>
