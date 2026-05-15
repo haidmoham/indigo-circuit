@@ -815,16 +815,6 @@ def _build_og_image() -> bytes:
         radius=RADIUS, fill=GOLD + (200,)
     )
 
-    # Champion badge
-    badge_x, badge_y = CARD_X + 20, CARD_Y + 20
-    badge_w = 148
-    draw.rounded_rectangle(
-        [badge_x, badge_y, badge_x + badge_w, badge_y + 28],
-        radius=5, fill=_hex("2a1a00") + (220,),
-        outline=GOLD + (160,), width=1
-    )
-    draw.text((badge_x + 8, badge_y + 5), "CHAMPION", font=f_tiny, fill=GOLD + (255,))
-
     # Fetch champion data
     champ = None
     try:
@@ -903,6 +893,20 @@ def _build_og_image() -> bytes:
         foot = f"{majors} major tournaments"
         fw = draw.textlength(foot, font=f_tiny)
         draw.text((cx - fw // 2, div_y + 110), foot, font=f_tiny, fill=MUTED + (160,))
+
+    # CHAMPION badge — large, centered, bottom of card
+    badge_h = 52
+    badge_w = 220
+    badge_y = CARD_Y + CARD_H - 26 - badge_h
+    badge_x = cx - badge_w // 2
+    draw.rounded_rectangle(
+        [badge_x, badge_y, badge_x + badge_w, badge_y + badge_h],
+        radius=10, fill=_hex("2a1a00") + (230,),
+        outline=GOLD + (180,), width=2
+    )
+    badge_label = "🏆  CHAMPION"
+    bl_w = draw.textlength(badge_label, font=f_med)
+    draw.text((cx - bl_w // 2, badge_y + (badge_h - 32) // 2), badge_label, font=f_med, fill=GOLD + (255,))
 
     draw.text((PAD, H - 36), "indigocircuit.app", font=f_tiny, fill=MUTED + (90,))
 
