@@ -64,15 +64,17 @@
 
     /* ── Navigation ────────────────────────────────────────────────── */
     nav {
-      display: flex; align-items: center; gap: 2rem;
+      display: flex; align-items: center; gap: 1.5rem;
       padding: 0.9rem 2rem;
       background: linear-gradient(180deg, #12103080 0%, #09071d80 100%);
       backdrop-filter: blur(12px);
       border-bottom: 2px solid var(--border);
       position: sticky; top: 0; z-index: 100;
+      overflow-x: auto; scrollbar-width: none;
     }
+    nav::-webkit-scrollbar { display: none; }
     .logo {
-      font-weight: 900; font-size: 1.15rem; margin-right: auto;
+      font-weight: 900; font-size: 1.15rem; margin-right: auto; flex-shrink: 0;
       color: var(--violet); letter-spacing: 0.06em; text-decoration: none;
       text-shadow: 0 0 20px rgba(160,124,248,0.5);
     }
@@ -84,7 +86,7 @@
       color: var(--muted); text-decoration: none;
       font-size: 0.88rem; font-weight: 700; letter-spacing: 0.04em;
       text-transform: uppercase; transition: color 0.15s;
-      padding: 0.25rem 0;
+      padding: 0.25rem 0; white-space: nowrap; flex-shrink: 0;
       border-bottom: 2px solid transparent;
     }
     nav a:hover { color: var(--text); border-bottom-color: var(--violet); }
@@ -92,6 +94,10 @@
 
     /* ── Layout ────────────────────────────────────────────────────── */
     main { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+    @media (max-width: 640px) {
+      main { padding: 1.25rem 1rem; }
+      nav  { gap: 1.1rem; padding: 0.75rem 1rem; }
+    }
 
     /* ── Cards ─────────────────────────────────────────────────────── */
     .card {

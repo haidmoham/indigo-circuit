@@ -102,7 +102,7 @@ async function load() {
   if (spriteUrl) {
     document.getElementById('player-sprite').src = spriteUrl;
     document.getElementById('player-sprite-wrap').style.display = '';
-    const theme = getTheme({ TOP_DECK_SPRITE: r.TOP_DECK_SPRITE, TOP_DECK_NAME: r.TOP_DECK_NAME });
+    const theme = getTheme({ TOP_DECK_SPRITE: r?.TOP_DECK_SPRITE, TOP_DECK_NAME: r?.TOP_DECK_NAME });
     document.getElementById('player-sprite').style.filter =
       `drop-shadow(0 0 8px ${theme.c}88)`;
   }

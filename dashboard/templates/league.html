@@ -101,7 +101,7 @@ async function load() {
 
           <!-- Stats -->
           <div style="display:flex;gap:2rem;flex-wrap:wrap;align-items:center">
-            ${statBox('ATP Score',   champ.ATP_SCORE?.toFixed(1), theme.c)}
+            ${statBox('ATP Score',   champ.ATP_SCORE != null ? champ.ATP_SCORE.toFixed(1) : '—', theme.c)}
             ${statBox('Win Rate',    champ.WIN_RATE_PCT + '%',    'var(--green)')}
             ${statBox('Best Finish', '#' + champ.BEST_PLACING,    'var(--electric)')}
           </div>
@@ -169,7 +169,7 @@ async function load() {
 
       <div style="display:flex;justify-content:space-between;font-size:0.82rem;
                   padding-top:0.75rem;border-top:1px solid rgba(255,255,255,0.06)">
-        <span style="font-weight:800;color:${theme.c}">${p.ATP_SCORE?.toFixed(1)} pts</span>
+        <span style="font-weight:800;color:${theme.c}">${p.ATP_SCORE != null ? p.ATP_SCORE.toFixed(1) : '—'} pts</span>
         <span style="font-weight:700;color:var(--green)">${p.WIN_RATE_PCT}% WR</span>
       </div>
 
