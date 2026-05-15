@@ -261,6 +261,7 @@
     function buildSprite(deckName) {
       if (!deckName) return null;
       let s = deckName.toLowerCase()
+        .replace(/\b\w+'\s*s\s+/g, '')          // strip trainer possessives: "Rocket's ", "N's "
         .replace(/\bex\b|\bvstar\b|\bvmax\b|\bgx\b|\bv\b/g, '')
         .replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
       for (const c of COMPOUND_NAMES) {
