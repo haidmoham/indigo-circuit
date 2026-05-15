@@ -43,7 +43,8 @@ function statBox(label, value, color) {
 }
 
 function playerLink(name) {
-  return `<span class="trainer-link" onclick="showTrainerCard(${JSON.stringify(name)})">${name}</span>` +
+  const safe = JSON.stringify(name).replace(/"/g, '&quot;');
+  return `<span class="trainer-link" onclick="showTrainerCard(${safe})">${name}</span>` +
          `<a href="${limitlesstcg(name)}" target="_blank" rel="noopener" class="ext-link">&#8599;</a>`;
 }
 
@@ -76,9 +77,10 @@ async function load() {
 
           <!-- Name + meta -->
           <div style="flex:1;min-width:200px">
-            <div style="margin-bottom:0.5rem">
+            <div style="margin-bottom:0.5rem;display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap">
               <span class="badge badge-champion">🏆 Champion</span>
-              ${champ.TOP_DECK_NAME ? `<span style="margin-left:0.6rem;font-size:0.72rem;font-weight:700;
+              ${champ.GYM_LEADER_OF ? `<span class="badge badge-gym">🏅 ${champ.GYM_LEADER_OF} Leader</span>` : ''}
+              ${champ.TOP_DECK_NAME ? `<span style="font-size:0.72rem;font-weight:700;
                 color:${theme.c};text-transform:uppercase;letter-spacing:0.08em">${champ.TOP_DECK_NAME}</span>` : ''}
             </div>
             <h2 style="font-size:2.2rem;font-weight:900;line-height:1.05;">
@@ -133,7 +135,10 @@ async function load() {
       position: relative; overflow: hidden;
     ">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.85rem">
-        <span class="badge badge-elite4">Elite Four</span>
+        <div style="display:flex;gap:0.4rem;flex-wrap:wrap">
+          <span class="badge badge-elite4">Elite Four</span>
+          ${p.GYM_LEADER_OF ? `<span class="badge badge-gym" style="font-size:0.6rem">🏅 ${p.GYM_LEADER_OF}</span>` : ''}
+        </div>
         <span style="color:var(--muted);font-size:0.75rem;font-weight:700">${p.MAJORS_COUNTED} majors</span>
       </div>
 

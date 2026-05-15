@@ -182,18 +182,22 @@ def meta_stats():
 
 @app.get("/api/leaderboard")
 def leaderboard_data():
-    # Rankings from majors only — ATP-style seasonal points
+    # Rankings from majors only — ATP-style seasonal points with gym leader join
     rows = query(
         f"""
-        SELECT rank, player_name, country,
-               majors_counted, win_rate_pct, best_placing,
-               top8s, top16s, worlds_top8s, ic_top8s, regional_top8s,
-               atp_score, avg_placement_pct,
-               last_played, title,
-               worlds_score, ic_score, regional_score,
-               top_deck_name, top_deck_sprite
-        FROM PTCG_SCOUTING.{MARTS}.SEASONAL_RANKINGS
-        ORDER BY rank
+        SELECT sr.rank, sr.player_name, sr.country,
+               sr.majors_counted, sr.win_rate_pct, sr.best_placing,
+               sr.top8s, sr.top16s, sr.worlds_top8s, sr.ic_top8s, sr.regional_top8s,
+               sr.atp_score, sr.avg_placement_pct,
+               sr.last_played, sr.title,
+               sr.worlds_score, sr.ic_score, sr.regional_score,
+               sr.top_deck_name, sr.top_deck_sprite,
+               mgl.archetype AS gym_leader_of
+        FROM PTCG_SCOUTING.{MARTS}.SEASONAL_RANKINGS sr
+        LEFT JOIN PTCG_SCOUTING.{MARTS}.MAJOR_GYM_LEADERS mgl
+          ON lower(sr.player_name) = lower(mgl.player_name)
+          AND mgl.is_gym_leader = TRUE
+        ORDER BY sr.rank
         LIMIT 100
         """
     )
@@ -204,12 +208,16 @@ def leaderboard_data():
 def player_card(name):
     rows = query(
         f"""
-        SELECT rank, player_name, country, majors_counted, win_rate_pct,
-               best_placing, top8s, atp_score, title,
-               top_deck_name, top_deck_sprite,
-               worlds_top8s, ic_top8s, regional_top8s
-        FROM PTCG_SCOUTING.{MARTS}.SEASONAL_RANKINGS
-        WHERE lower(player_name) = lower(%s)
+        SELECT sr.rank, sr.player_name, sr.country, sr.majors_counted, sr.win_rate_pct,
+               sr.best_placing, sr.top8s, sr.atp_score, sr.title,
+               sr.top_deck_name, sr.top_deck_sprite,
+               sr.worlds_top8s, sr.ic_top8s, sr.regional_top8s,
+               mgl.archetype AS gym_leader_of
+        FROM PTCG_SCOUTING.{MARTS}.SEASONAL_RANKINGS sr
+        LEFT JOIN PTCG_SCOUTING.{MARTS}.MAJOR_GYM_LEADERS mgl
+          ON lower(sr.player_name) = lower(mgl.player_name)
+          AND mgl.is_gym_leader = TRUE
+        WHERE lower(sr.player_name) = lower(%s)
         LIMIT 1
         """,
         (name,),

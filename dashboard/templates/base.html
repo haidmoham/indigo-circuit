@@ -293,13 +293,19 @@
       const theme = getTheme(themePlayer);
       const tier  = _cardTierStyle(title);
 
-      const titleBadge = title
-        ? (title.toLowerCase().includes('champion')
-            ? `<span class="badge badge-champion">🏆 ${title}</span>`
-            : title.toLowerCase().includes('elite')
-              ? `<span class="badge badge-elite4">${title}</span>`
-              : ``)
-        : '';
+      const gymLeaderOf = p.GYM_LEADER_OF || p.gym_leader_of || '';
+      const titleBadge = [
+        title
+          ? (title.toLowerCase().includes('champion')
+              ? `<span class="badge badge-champion">🏆 ${title}</span>`
+              : title.toLowerCase().includes('elite')
+                ? `<span class="badge badge-elite4">${title}</span>`
+                : '')
+          : '',
+        gymLeaderOf
+          ? `<span class="badge badge-gym">🏅 ${gymLeaderOf} Leader</span>`
+          : '',
+      ].filter(Boolean).join(' ');
 
       const rankColor = rank === 1 ? 'var(--gold)' : (rank <= 5 ? 'var(--indigo)' : 'var(--muted)');
 

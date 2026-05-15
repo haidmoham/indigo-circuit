@@ -1,9 +1,11 @@
 -- ATP-style rolling rankings from majors only.
--- Rules mirroring ATP tour:
---   1. Rolling 52-week window — results older than 1 year drop off naturally.
---   2. Best-N cap — all ICs + Worlds always count (only 2-3 per season);
+-- Rules:
+--   1. Rolling 52-week window — results older than 1 year drop off.
+--   2. Best-N cap — all ICs + Worlds count in full;
 --      best 10 regional/special results (prevents pure volume grinding).
---   3. No binary season weight — recency is handled by the rolling window.
+--   3. Recency decay — placement_score multiplied by exp(-1.386 * days_ago / 365).
+--      Half-life = 6 months: a win from 6 mo ago is worth 50% of one today.
+--      This makes rankings volatile and reflective of current form.
 -- Champion = rank 1, Elite Four = ranks 2-5.
 
 with windowed as (
@@ -13,7 +15,7 @@ with windowed as (
     where tournament_date >= dateadd('week', -52, current_date())
 ),
 
--- Best archetype per player by total placement_score in the window
+-- Best archetype per player by decayed placement_score — reflects current specialization
 top_arch as (
     select
         player_key,
@@ -24,10 +26,15 @@ top_arch as (
             lower(player_name)                                               as player_key,
             deck_name,
             max(deck_sprite)                                                 as deck_sprite,
-            sum(placement_score)                                             as arch_score,
+            -- decayed arch score so recent deck choice wins ties
+            sum(placement_score
+                * exp(-1.386 * datediff('day', tournament_date, current_date()) / 365.0)
+            )                                                                as arch_score,
             row_number() over (
                 partition by lower(player_name)
-                order by sum(placement_score) desc
+                order by sum(placement_score
+                    * exp(-1.386 * datediff('day', tournament_date, current_date()) / 365.0)
+                ) desc
             )                                                                as rn
         from windowed
         where deck_name is not null
@@ -91,7 +98,11 @@ scored as (
         max(mph.player_name)                                    as player_name,
         max(mph.country)                                        as country,
         count(distinct c.tournament_id)                         as majors_counted,
-        sum(c.placement_score)                                  as atp_score,
+        -- Decayed ATP score: exp(-1.386 * days/365) → 6-month half-life
+        sum(
+            c.placement_score
+            * exp(-1.386 * datediff('day', c.tournament_date, current_date()) / 365.0)
+        )                                                       as atp_score,
         round(avg(c.normalized_placement), 4)                   as avg_normalized_placement,
         round(
             sum(c.wins)::float / nullif(sum(c.wins) + sum(c.losses), 0), 3
@@ -99,14 +110,14 @@ scored as (
         min(c.placing)                                          as best_placing,
         sum(case when c.placing <= 8  then 1 else 0 end)        as top8s,
         sum(case when c.placing <= 16 then 1 else 0 end)        as top16s,
-        -- tier-split top 8s for card display
+        -- tier-split top 8s for card display (raw counts, not decayed)
         sum(case when c.placing <= 8 and c.tier = 'worlds'                    then 1 else 0 end) as worlds_top8s,
         sum(case when c.placing <= 8 and c.tier = 'international'             then 1 else 0 end) as ic_top8s,
         sum(case when c.placing <= 8 and c.tier in ('regional', 'special')    then 1 else 0 end) as regional_top8s,
         max(c.tournament_date)                                  as last_played,
-        sum(case when c.tier = 'worlds'        then c.placement_score else 0 end) as worlds_score,
-        sum(case when c.tier = 'international' then c.placement_score else 0 end) as ic_score,
-        sum(case when c.tier in ('regional', 'special') then c.placement_score else 0 end) as regional_score
+        sum(case when c.tier = 'worlds'        then c.placement_score * exp(-1.386 * datediff('day', c.tournament_date, current_date()) / 365.0) else 0 end) as worlds_score,
+        sum(case when c.tier = 'international' then c.placement_score * exp(-1.386 * datediff('day', c.tournament_date, current_date()) / 365.0) else 0 end) as ic_score,
+        sum(case when c.tier in ('regional', 'special') then c.placement_score * exp(-1.386 * datediff('day', c.tournament_date, current_date()) / 365.0) else 0 end) as regional_score
     from combined c
     join {{ ref('major_player_history') }} mph
       on lower(mph.player_name) = c.player_key

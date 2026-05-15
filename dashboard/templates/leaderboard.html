@@ -54,6 +54,7 @@ async function load() {
     const wr = p.WIN_RATE_PCT;
     const top8s = p.TOP8S;
     const title = p.TITLE || '';
+    const gymLeaderOf = p.GYM_LEADER_OF || '';
 
     const rankColor = rank === 1 ? 'var(--gold)' : (rank <= 5 ? 'var(--indigo)' : 'var(--muted)');
     const rankWeight = rank <= 5 ? '900' : '700';
@@ -62,12 +63,16 @@ async function load() {
     const themePlayer = { TOP_DECK_SPRITE: deckSprite, TOP_DECK_NAME: deckName };
     const theme = getTheme(themePlayer);
 
-    let titleBadge = '';
+    const titleParts = [];
     if (title.toLowerCase().includes('champion')) {
-      titleBadge = `<span class="badge badge-champion" style="font-size:0.6rem;padding:0.15rem 0.5rem">🏆 Champion</span>`;
+      titleParts.push(`<span class="badge badge-champion" style="font-size:0.6rem;padding:0.15rem 0.5rem">🏆 Champion</span>`);
     } else if (title.toLowerCase().includes('elite')) {
-      titleBadge = `<span class="badge badge-elite4" style="font-size:0.6rem;padding:0.15rem 0.5rem">Elite Four</span>`;
+      titleParts.push(`<span class="badge badge-elite4" style="font-size:0.6rem;padding:0.15rem 0.5rem">Elite Four</span>`);
     }
+    if (gymLeaderOf) {
+      titleParts.push(`<span class="badge badge-gym" style="font-size:0.6rem;padding:0.15rem 0.5rem">🏅 ${gymLeaderOf}</span>`);
+    }
+    const titleBadge = titleParts.join(' ');
 
     const rowBg = rank === 1
       ? 'background:rgba(255,171,0,0.05)'
@@ -84,7 +89,7 @@ async function load() {
         <span style="font-size:0.95rem;font-weight:${rankWeight};color:${rankColor}">${rank}</span>
       </td>
       <td style="padding:0.65rem 0.75rem">
-        <span class="trainer-link" onclick="showTrainerCard(${JSON.stringify(name)})"
+        <span class="trainer-link" onclick="showTrainerCard(${JSON.stringify(name).replace(/"/g,'&quot;')})"
               style="font-weight:800;font-size:0.9rem">${name}</span>
         <a href="${limitlesstcg(name)}" target="_blank" rel="noopener" class="ext-link">&#8599;</a>
       </td>
