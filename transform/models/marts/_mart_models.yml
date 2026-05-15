@@ -37,6 +37,19 @@ models:
       - name: opponent_username
         tests: [not_null]
 
+  - name: gym_leaders
+    description: >
+      Top-10 specialists per archetype, ranked by season-weighted placement score
+      scaled by log(tournament_count). Minimum 3 tournaments to qualify.
+      archetype_rank = 1 is the current Gym Leader for that deck.
+    columns:
+      - name: archetype
+        tests: [not_null]
+      - name: player_username
+        tests: [not_null]
+      - name: is_gym_leader
+        description: True for archetype_rank = 1.
+
   - name: card_archetype_stats
     description: >
       Per-archetype card inclusion rates and counts. Powers tech card detection

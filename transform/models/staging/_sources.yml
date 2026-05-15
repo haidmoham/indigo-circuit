@@ -44,3 +44,15 @@ sources:
         columns:
           - name: player_username
             tests: [not_null, unique]
+
+      - name: major_tournaments
+        description: Curated major events (Regionals, ICs, Worlds) scraped from Limitless Labs.
+        columns:
+          - name: labs_id
+            tests: [not_null, unique]
+
+      - name: major_standings
+        description: Player standings for each major tournament scraped from Limitless Labs.
+        columns:
+          - name: labs_tournament_id
+            tests: [not_null]

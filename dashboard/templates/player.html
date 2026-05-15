@@ -1,29 +1,47 @@
 {% extends "base.html" %}
-{% block title %}PTCG Scout — {{ username }}{% endblock %}
+{% block title %}Indigo Circuit — {{ username }}{% endblock %}
 
 {% block content %}
 <div id="loading" style="color:var(--muted)">Loading…</div>
 <div id="report" style="display:none">
-  <h1 id="player-name" style="margin-bottom:0.25rem"></h1>
-  <p id="player-meta" style="color:var(--muted); margin-bottom:1.5rem"></p>
 
-  <div class="stat-grid card" style="margin-bottom:1.5rem" id="stats"></div>
+  <!-- Header -->
+  <div style="display: flex; align-items: flex-start; gap: 1.5rem; margin-bottom: 1.5rem; flex-wrap: wrap">
+    <div style="flex: 1">
+      <h1 id="player-name" style="font-size: 1.8rem; font-weight: 800; margin-bottom: 0.25rem"></h1>
+      <p id="player-meta" style="color:var(--muted); font-size: 0.9rem"></p>
+    </div>
+    <div id="glicko-card" style="display: none" class="card" style="min-width: 220px">
+      <div class="card-title">Glicko-2 Rating</div>
+      <div id="glicko-rating" style="font-size: 2rem; font-weight: 800; color: var(--accent2)"></div>
+      <div id="glicko-range" style="color: var(--muted); font-size: 0.8rem; margin-top: 0.25rem"></div>
+      <div id="glicko-bar" style="margin-top: 0.75rem; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden">
+        <div id="glicko-fill" style="height: 100%; background: linear-gradient(90deg, var(--accent), var(--accent2)); border-radius: 3px;"></div>
+      </div>
+    </div>
+  </div>
 
+  <!-- Stat strip -->
+  <div class="card stat-grid" style="margin-bottom: 1.5rem" id="stats"></div>
+
+  <!-- Charts -->
   <div style="display:grid; grid-template-columns:1fr 1fr; gap:1.5rem; margin-bottom:1.5rem">
     <div class="card">
-      <h3 style="margin-bottom:1rem">Placement History</h3>
+      <div class="card-title">Placement History</div>
       <div id="chart-placements"></div>
     </div>
     <div class="card">
-      <h3 style="margin-bottom:1rem">Archetype Breakdown</h3>
+      <div class="card-title">Archetype Breakdown</div>
       <div id="chart-archetypes"></div>
     </div>
   </div>
 
+  <!-- Tournament history -->
   <div class="card">
-    <h3 style="margin-bottom:1rem">Recent Tournaments</h3>
-    <table id="history-table" style="width:100%; border-collapse:collapse; font-size:0.9rem"></table>
+    <div class="card-title">Tournament History</div>
+    <table id="history-table" style="width:100%; border-collapse:collapse; font-size:0.88rem"></table>
   </div>
+
 </div>
 {% endblock %}
 
@@ -31,17 +49,37 @@
 const username = "{{ username }}";
 
 async function load() {
-  const data = await fetch(`/api/player/${username}`).then(r => r.json());
-  if (data.error) { document.getElementById('loading').textContent = 'Player not found.'; return; }
+  const resp = await fetch(`/api/player/${username}`);
+  const data = await resp.json();
+  if (data.error) {
+    document.getElementById('loading').textContent = 'Player not found.';
+    return;
+  }
   const { career, history, archetypes } = data;
 
   document.getElementById('loading').style.display = 'none';
-  document.getElementById('report').style.display = '';
+  document.getElementById('report').style.display  = '';
 
+  // Header
   document.getElementById('player-name').textContent = career.PLAYER_NAME || career.PLAYER_USERNAME;
   document.getElementById('player-meta').textContent =
-    `${career.COUNTRY || '—'} · ${career.TOURNAMENTS_ENTERED} tournaments · active ${career.FIRST_PLAYED?.slice(0,10)} – ${career.LAST_PLAYED?.slice(0,10)}`;
+    [career.COUNTRY, `${career.TOURNAMENTS_ENTERED} tournaments`,
+     `active ${career.FIRST_PLAYED?.slice(0,10)} – ${career.LAST_PLAYED?.slice(0,10)}`]
+    .filter(Boolean).join(' · ');
 
+  // Glicko card
+  if (career.GLICKO_RATING) {
+    const gc = document.getElementById('glicko-card');
+    gc.style.display = '';
+    document.getElementById('glicko-rating').textContent = Math.round(career.GLICKO_RATING);
+    const lo = Math.round(career.GLICKO_RATING_LOW), hi = Math.round(career.GLICKO_RATING_HIGH);
+    document.getElementById('glicko-range').textContent = `Range ${lo} – ${hi}  ·  ±${Math.round(career.GLICKO_RD)} RD`;
+    // fill bar: map rating 1200-2200 to 0-100%
+    const pct = Math.min(100, Math.max(0, (career.GLICKO_RATING - 1200) / 1000 * 100));
+    document.getElementById('glicko-fill').style.width = pct + '%';
+  }
+
+  // Stats
   document.getElementById('stats').innerHTML = [
     ['Win Rate',    pct(career.WIN_RATE)],
     ['Avg Place',   career.AVG_PLACEMENT],
@@ -50,55 +88,67 @@ async function load() {
     ['Top 8s',      career.TOP8_FINISHES],
     ['Consistency', career.CONSISTENCY_SCORE?.toFixed(2) ?? '—'],
   ].map(([label, value]) => `
-    <div class="stat"><div class="value">${value}</div><div class="label">${label}</div></div>
+    <div class="stat">
+      <div class="value">${value}</div>
+      <div class="label">${label}</div>
+    </div>
   `).join('');
 
-  // placement over time
+  // Placement chart
   Plotly.newPlot('chart-placements', [{
     x: history.map(r => r.TOURNAMENT_DATE?.slice(0,10)),
     y: history.map(r => r.NORMALIZED_PLACEMENT),
     mode: 'lines+markers',
-    marker: { color: '#e63946' },
+    marker: { color: '#6366f1', size: 7 },
+    line: { color: '#6366f1' },
     hovertext: history.map(r => `${r.TOURNAMENT_NAME}<br>#${r.PLACING} of ${r.PLAYER_COUNT}`),
     hoverinfo: 'text',
   }], {
     paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
-    font: { color: '#e8eaf0' },
-    yaxis: { autorange: 'reversed', title: 'Normalized placement (lower = better)' },
-    xaxis: { title: '' },
-    margin: { t: 10 },
+    font: { color: '#e8eaf0', size: 11 },
+    yaxis: { autorange: 'reversed', title: 'Placement % (lower = better)',
+             gridcolor: '#252840', zerolinecolor: '#252840' },
+    xaxis: { gridcolor: '#252840' },
+    margin: { t: 10, l: 60, r: 10, b: 40 },
+    showlegend: false,
   });
 
-  // archetype pie
+  // Archetype pie
   Plotly.newPlot('chart-archetypes', [{
     labels: archetypes.map(a => a.DECK_NAME || 'Unknown'),
     values: archetypes.map(a => a.TIMES_PLAYED),
     type: 'pie',
-    marker: { colors: ['#e63946','#457b9d','#2a9d8f','#e9c46a','#f4a261','#264653'] },
+    marker: { colors: ['#6366f1','#f59e0b','#34d399','#f87171','#60a5fa','#a78bfa','#fb923c'] },
     textinfo: 'label+percent',
-    hovertemplate: '%{label}<br>%{value} tournaments<br>Avg place: %{customdata}<extra></extra>',
+    hovertemplate: '%{label}<br>%{value} events<br>Avg place: %{customdata}<extra></extra>',
     customdata: archetypes.map(a => a.AVG_PLACEMENT),
   }], {
     paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
-    font: { color: '#e8eaf0' },
+    font: { color: '#e8eaf0', size: 11 },
     showlegend: false,
-    margin: { t: 10 },
+    margin: { t: 10, l: 10, r: 10, b: 10 },
   });
 
-  // history table
-  const thead = '<tr>' + ['Tournament','Date','Format','Placement','Record','Deck'].map(h =>
-    `<th style="text-align:left; padding:0.5rem; border-bottom:1px solid var(--border); color:var(--muted)">${h}</th>`
+  // History table
+  const cols = ['Tournament', 'Date', 'Format', 'Placement', 'Record', 'Deck'];
+  const thead = '<tr>' + cols.map(h =>
+    `<th style="text-align:left; padding:0.5rem 0.75rem; border-bottom:1px solid var(--border); color:var(--muted); font-weight:500; font-size:0.75rem; text-transform:uppercase; letter-spacing:0.05em">${h}</th>`
   ).join('') + '</tr>';
-  const tbody = history.slice(0, 20).map(r => `
-    <tr>
-      <td style="padding:0.5rem">${r.TOURNAMENT_NAME}</td>
-      <td style="padding:0.5rem; color:var(--muted)">${r.TOURNAMENT_DATE?.slice(0,10)}</td>
-      <td style="padding:0.5rem; color:var(--muted)">${r.FORMAT}</td>
-      <td style="padding:0.5rem">#${r.PLACING} <span style="color:var(--muted)">/ ${r.PLAYER_COUNT}</span></td>
-      <td style="padding:0.5rem">${r.WINS}-${r.LOSSES}-${r.TIES}</td>
-      <td style="padding:0.5rem">${r.DECK_NAME || '—'}</td>
+
+  const tbody = history.slice(0, 25).map(r => `
+    <tr style="border-bottom: 1px solid var(--border)">
+      <td style="padding:0.5rem 0.75rem">${r.TOURNAMENT_NAME}</td>
+      <td style="padding:0.5rem 0.75rem; color:var(--muted)">${r.TOURNAMENT_DATE?.slice(0,10)}</td>
+      <td style="padding:0.5rem 0.75rem; color:var(--muted)">${r.FORMAT || '—'}</td>
+      <td style="padding:0.5rem 0.75rem">
+        <strong>#${r.PLACING}</strong>
+        <span style="color:var(--muted)"> / ${r.PLAYER_COUNT}</span>
+      </td>
+      <td style="padding:0.5rem 0.75rem">${r.WINS}-${r.LOSSES}-${r.TIES}</td>
+      <td style="padding:0.5rem 0.75rem; color:var(--accent2)">${r.DECK_NAME || '—'}</td>
     </tr>
   `).join('');
+
   document.getElementById('history-table').innerHTML = thead + tbody;
 }
 

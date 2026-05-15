@@ -1,0 +1,115 @@
+{% extends "base.html" %}
+{% block title %}Indigo Circuit — Rankings{% endblock %}
+
+{% block content %}
+<div style="display:flex;align-items:center;gap:1rem;margin-bottom:1.75rem;flex-wrap:wrap">
+  <div>
+    <h1 style="font-size:1.6rem;font-weight:900;line-height:1.1">Rankings</h1>
+    <p style="color:var(--muted);font-size:0.8rem;font-weight:600;margin-top:0.25rem;
+              letter-spacing:0.04em;text-transform:uppercase">Seasonal ATP standings · Top 100</p>
+  </div>
+</div>
+
+<div id="loading" style="color:var(--muted); padding: 2rem 0; font-weight: 700;
+     letter-spacing: 0.06em; text-transform: uppercase; font-size: 0.8rem">
+  Loading rankings…
+</div>
+
+<div id="table-wrap" style="display:none; overflow-x:auto">
+  <table id="rank-table" style="width:100%; border-collapse:collapse; font-size:0.85rem">
+    <thead>
+      <tr style="border-bottom:2px solid var(--border); color:var(--muted);
+                 font-size:0.65rem; font-weight:800; letter-spacing:0.1em; text-transform:uppercase">
+        <th style="padding:0.6rem 0.75rem; text-align:right; width:3rem">#</th>
+        <th style="padding:0.6rem 0.75rem; text-align:left">Player</th>
+        <th style="padding:0.6rem 0.75rem; text-align:left">Country</th>
+        <th style="padding:0.6rem 0.75rem; text-align:left">Deck</th>
+        <th style="padding:0.6rem 0.75rem; text-align:right">ATP</th>
+        <th style="padding:0.6rem 0.75rem; text-align:right">Win%</th>
+        <th style="padding:0.6rem 0.75rem; text-align:right">Top 8s</th>
+        <th style="padding:0.6rem 0.75rem; text-align:left">Title</th>
+      </tr>
+    </thead>
+    <tbody id="rank-body"></tbody>
+  </table>
+</div>
+{% endblock %}
+
+{% block scripts %}
+async function load() {
+  const rows = await fetch('/api/leaderboard').then(r => r.json());
+
+  document.getElementById('loading').style.display = 'none';
+  document.getElementById('table-wrap').style.display = '';
+
+  const tbody = document.getElementById('rank-body');
+
+  tbody.innerHTML = rows.map((p, i) => {
+    const rank = p.RANK ?? (i + 1);
+    const name = p.PLAYER_NAME || '';
+    const country = p.COUNTRY || '';
+    const deckName = p.TOP_DECK_NAME || '';
+    const deckSprite = p.TOP_DECK_SPRITE || null;
+    const atp = p.ATP_SCORE;
+    const wr = p.WIN_RATE_PCT;
+    const top8s = p.TOP8S;
+    const title = p.TITLE || '';
+
+    const rankColor = rank === 1 ? 'var(--gold)' : (rank <= 5 ? 'var(--indigo)' : 'var(--muted)');
+    const rankWeight = rank <= 5 ? '900' : '700';
+
+    const sprite = getSprite(deckSprite, deckName);
+    const themePlayer = { TOP_DECK_SPRITE: deckSprite, TOP_DECK_NAME: deckName };
+    const theme = getTheme(themePlayer);
+
+    let titleBadge = '';
+    if (title.toLowerCase().includes('champion')) {
+      titleBadge = `<span class="badge badge-champion" style="font-size:0.6rem;padding:0.15rem 0.5rem">🏆 Champion</span>`;
+    } else if (title.toLowerCase().includes('elite')) {
+      titleBadge = `<span class="badge badge-elite4" style="font-size:0.6rem;padding:0.15rem 0.5rem">Elite Four</span>`;
+    }
+
+    const rowBg = rank === 1
+      ? 'background:rgba(255,171,0,0.05)'
+      : rank <= 5
+        ? 'background:rgba(92,53,232,0.06)'
+        : '';
+
+    return `
+    <tr style="border-bottom:1px solid rgba(255,255,255,0.05); transition:background 0.12s;
+               ${rowBg}"
+        onmouseover="this.style.background='rgba(255,255,255,0.04)'"
+        onmouseout="this.style.background='${rank===1 ? 'rgba(255,171,0,0.05)' : rank<=5 ? 'rgba(92,53,232,0.06)' : 'transparent'}'">
+      <td style="padding:0.65rem 0.75rem; text-align:right">
+        <span style="font-size:0.95rem;font-weight:${rankWeight};color:${rankColor}">${rank}</span>
+      </td>
+      <td style="padding:0.65rem 0.75rem">
+        <span class="trainer-link" onclick="showTrainerCard(${JSON.stringify(name)})"
+              style="font-weight:800;font-size:0.9rem">${name}</span>
+        <a href="${limitlesstcg(name)}" target="_blank" rel="noopener" class="ext-link">&#8599;</a>
+      </td>
+      <td style="padding:0.65rem 0.75rem; color:var(--muted); font-size:0.8rem; font-weight:600">${country}</td>
+      <td style="padding:0.65rem 0.75rem">
+        <div style="display:flex;align-items:center;gap:0.4rem">
+          ${sprite ? `<img src="${sprite}" alt="${deckName}"
+            style="width:32px;height:32px;object-fit:contain;image-rendering:pixelated;flex-shrink:0;
+                   filter:drop-shadow(0 0 4px ${theme.c}66);" onerror="this.style.display='none'">` : ''}
+          ${deckName ? `<span style="font-size:0.78rem;font-weight:700;color:${theme.c}">${deckName}</span>` : '<span style="color:var(--muted);font-size:0.78rem">—</span>'}
+        </div>
+      </td>
+      <td style="padding:0.65rem 0.75rem; text-align:right; font-weight:800; color:${theme.c}">
+        ${atp != null ? Number(atp).toFixed(1) : '—'}
+      </td>
+      <td style="padding:0.65rem 0.75rem; text-align:right; font-weight:700; color:var(--green)">
+        ${wr != null ? wr + '%' : '—'}
+      </td>
+      <td style="padding:0.65rem 0.75rem; text-align:right; font-weight:700; color:var(--electric)">
+        ${top8s ?? '—'}
+      </td>
+      <td style="padding:0.65rem 0.75rem">${titleBadge}</td>
+    </tr>`;
+  }).join('');
+}
+
+load();
+{% endblock %}

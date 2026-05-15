@@ -3,55 +3,430 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>{% block title %}PTCG Scouting{% endblock %}</title>
+  <title>{% block title %}Indigo Circuit{% endblock %}</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700;800;900&display=swap" rel="stylesheet">
   <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
   <style>
     :root {
-      --bg: #0f1117;
-      --surface: #1a1d27;
-      --border: #2a2d3a;
-      --accent: #e63946;
-      --text: #e8eaf0;
-      --muted: #8b8fa8;
+      /* Core backgrounds — deep Indigo Plateau purple */
+      --bg:        #07051a;
+      --surface:   #0e0c26;
+      --surface2:  #16143a;
+      --border:    #2b2760;
+
+      /* Primary palette */
+      --electric:  #ffd600;   /* Pikachu / Electric type — main accent */
+      --gold:      #ffab00;   /* Champion gold */
+      --gold2:     #ffe082;   /* Light gold */
+
+      /* Type accents */
+      --indigo:    #5c35e8;   /* Primary purple */
+      --violet:    #a07cf8;   /* Secondary purple */
+      --cyan:      #00e5ff;   /* Water / Ice accent */
+      --fire:      #ff6d00;
+      --psychic:   #e040fb;
+      --dragon:    #7c4dff;
+
+      --accent:    #6c47f5;
+      --accent2:   var(--violet);
+
+      --text:      #ede9ff;
+      --muted:     #7b72b0;
+      --green:     #57f287;   /* Grass type */
+      --red:       #ff3d57;
     }
+
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    body { background: var(--bg); color: var(--text); font-family: system-ui, sans-serif; }
+
+    body {
+      background-color: var(--bg);
+      /* Subtle hex-dot grid — evokes pixel-game depth */
+      background-image: radial-gradient(circle, rgba(108,71,245,0.12) 1px, transparent 1px);
+      background-size: 28px 28px;
+      color: var(--text);
+      font-family: 'Nunito', system-ui, sans-serif;
+      min-height: 100vh;
+    }
+
+    /* ── Navigation ────────────────────────────────────────────────── */
     nav {
       display: flex; align-items: center; gap: 2rem;
-      padding: 1rem 2rem; border-bottom: 1px solid var(--border);
+      padding: 0.9rem 2rem;
+      background: linear-gradient(180deg, #12103080 0%, #09071d80 100%);
+      backdrop-filter: blur(12px);
+      border-bottom: 2px solid var(--border);
+      position: sticky; top: 0; z-index: 100;
     }
-    nav a { color: var(--muted); text-decoration: none; font-size: 0.9rem; }
-    nav a:hover, nav a.active { color: var(--text); }
-    nav .logo { font-weight: 700; color: var(--accent); margin-right: auto; }
-    main { max-width: 1100px; margin: 0 auto; padding: 2rem; }
+    .logo {
+      font-weight: 900; font-size: 1.15rem; margin-right: auto;
+      color: var(--violet); letter-spacing: 0.06em; text-decoration: none;
+      text-shadow: 0 0 20px rgba(160,124,248,0.5);
+    }
+    .logo span {
+      color: var(--electric);
+      text-shadow: 0 0 16px rgba(255,214,0,0.6);
+    }
+    nav a {
+      color: var(--muted); text-decoration: none;
+      font-size: 0.88rem; font-weight: 700; letter-spacing: 0.04em;
+      text-transform: uppercase; transition: color 0.15s;
+      padding: 0.25rem 0;
+      border-bottom: 2px solid transparent;
+    }
+    nav a:hover { color: var(--text); border-bottom-color: var(--violet); }
+    nav a.active { color: var(--electric); border-bottom-color: var(--electric); }
+
+    /* ── Layout ────────────────────────────────────────────────────── */
+    main { max-width: 1200px; margin: 0 auto; padding: 2rem; }
+
+    /* ── Cards ─────────────────────────────────────────────────────── */
     .card {
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: 8px; padding: 1.5rem;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.5rem;
     }
-    .search-bar {
-      display: flex; gap: 0.5rem; margin-bottom: 2rem;
+    .card-title {
+      font-size: 0.72rem; font-weight: 800; letter-spacing: 0.12em;
+      text-transform: uppercase; color: var(--muted); margin-bottom: 1rem;
     }
+
+    /* ── Search ─────────────────────────────────────────────────────── */
+    .search-bar { display: flex; gap: 0.5rem; margin-bottom: 2rem; }
     .search-bar input {
       flex: 1; padding: 0.75rem 1rem;
-      background: var(--surface); border: 1px solid var(--border);
-      border-radius: 6px; color: var(--text); font-size: 1rem;
+      background: var(--surface); border: 1.5px solid var(--border);
+      border-radius: 10px; color: var(--text);
+      font-size: 1rem; font-family: 'Nunito', sans-serif;
+      transition: border-color 0.2s, box-shadow 0.2s;
     }
-    .search-bar input:focus { outline: none; border-color: var(--accent); }
-    .stat-grid {
-      display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 1rem;
+    .search-bar input:focus {
+      outline: none; border-color: var(--accent);
+      box-shadow: 0 0 0 3px rgba(108,71,245,0.2);
     }
+    .search-bar input::placeholder { color: var(--muted); }
+
+    /* ── Stats ──────────────────────────────────────────────────────── */
+    .stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 1rem; }
     .stat { text-align: center; }
-    .stat .value { font-size: 2rem; font-weight: 700; color: var(--accent); }
-    .stat .label { font-size: 0.75rem; color: var(--muted); text-transform: uppercase; margin-top: 0.25rem; }
+    .stat .value { font-size: 1.8rem; font-weight: 800; color: var(--accent2); }
+    .stat .label { font-size: 0.7rem; color: var(--muted); text-transform: uppercase; margin-top: 0.25rem; letter-spacing: 0.06em; }
+
+    /* ── Badges ─────────────────────────────────────────────────────── */
+    .badge {
+      display: inline-block; padding: 0.22rem 0.65rem;
+      border-radius: 5px; font-size: 0.7rem; font-weight: 800;
+      letter-spacing: 0.08em; text-transform: uppercase;
+    }
+    .badge-champion {
+      background: rgba(255,171,0,0.18); color: var(--gold);
+      border: 1px solid rgba(255,171,0,0.4);
+      text-shadow: 0 0 8px rgba(255,171,0,0.4);
+    }
+    .badge-elite4 {
+      background: rgba(108,71,245,0.18); color: var(--violet);
+      border: 1px solid rgba(108,71,245,0.4);
+    }
+    .badge-gym {
+      background: rgba(87,242,135,0.1); color: var(--green);
+      border: 1px solid rgba(87,242,135,0.35);
+    }
+
+    /* ── Section headers ────────────────────────────────────────────── */
+    .section-header {
+      display: flex; align-items: center; gap: 0.75rem;
+      margin-bottom: 1.25rem;
+    }
+    .section-header .label {
+      font-size: 0.72rem; font-weight: 800; letter-spacing: 0.14em;
+      text-transform: uppercase; color: var(--muted);
+    }
+    .section-header .line {
+      flex: 1; height: 1px;
+      background: linear-gradient(90deg, var(--border), transparent);
+    }
+
+    /* ── Trainer links ──────────────────────────────────────────────── */
+    .trainer-link {
+      cursor: pointer;
+      border-bottom: 1px solid rgba(255,255,255,0.2);
+      transition: border-color 0.15s, color 0.15s;
+    }
+    .trainer-link:hover { border-bottom-color: var(--electric); color: var(--electric); }
+    .ext-link {
+      font-size: 0.65rem; color: var(--muted); margin-left: 0.3rem;
+      text-decoration: none; vertical-align: super;
+    }
+    .ext-link:hover { color: var(--text); }
   </style>
+
+  <script>
+    // ── Shared sprite / theme helpers ────────────────────────────────────
+    const TYPE_THEMES = {
+      'charizard':      { c: '#ff6d00', g: 'rgba(255,109,0,0.25)',  label: 'Fire'     },
+      'entei':          { c: '#ff6d00', g: 'rgba(255,109,0,0.25)',  label: 'Fire'     },
+      'infernape':      { c: '#ff4500', g: 'rgba(255,69,0,0.25)',   label: 'Fire'     },
+      'blaziken':       { c: '#ff4500', g: 'rgba(255,69,0,0.25)',   label: 'Fire'     },
+      'gyarados':       { c: '#1e90ff', g: 'rgba(30,144,255,0.25)', label: 'Water'    },
+      'kyogre':         { c: '#1e90ff', g: 'rgba(30,144,255,0.25)', label: 'Water'    },
+      'primarina':      { c: '#29b6f6', g: 'rgba(41,182,246,0.25)', label: 'Water'    },
+      'greninja':       { c: '#29b6f6', g: 'rgba(41,182,246,0.25)', label: 'Water'    },
+      'ogerpon':        { c: '#57f287', g: 'rgba(87,242,135,0.22)', label: 'Grass'    },
+      'terapagos':      { c: '#4caf50', g: 'rgba(76,175,80,0.25)',  label: 'Grass'    },
+      'serperior':      { c: '#57f287', g: 'rgba(87,242,135,0.22)', label: 'Grass'    },
+      'raging-bolt':    { c: '#ffd600', g: 'rgba(255,214,0,0.28)',  label: 'Electric' },
+      'pikachu':        { c: '#ffd600', g: 'rgba(255,214,0,0.28)',  label: 'Electric' },
+      'miraidon':       { c: '#b388ff', g: 'rgba(179,136,255,0.25)',label: 'Electric' },
+      'tapu-koko':      { c: '#ffd600', g: 'rgba(255,214,0,0.28)',  label: 'Electric' },
+      'gardevoir':      { c: '#e040fb', g: 'rgba(224,64,251,0.25)', label: 'Psychic'  },
+      'mewtwo':         { c: '#e040fb', g: 'rgba(224,64,251,0.25)', label: 'Psychic'  },
+      'mew':            { c: '#f48fb1', g: 'rgba(244,143,177,0.25)',label: 'Psychic'  },
+      'espathra':       { c: '#e040fb', g: 'rgba(224,64,251,0.25)', label: 'Psychic'  },
+      'dragapult':      { c: '#7c4dff', g: 'rgba(124,77,255,0.28)', label: 'Dragon'   },
+      'regidrago':      { c: '#7c4dff', g: 'rgba(124,77,255,0.28)', label: 'Dragon'   },
+      'dragonite':      { c: '#ff8f00', g: 'rgba(255,143,0,0.25)',  label: 'Dragon'   },
+      'rayquaza':       { c: '#66bb6a', g: 'rgba(102,187,106,0.25)',label: 'Dragon'   },
+      'roaring-moon':   { c: '#4a148c', g: 'rgba(74,20,140,0.35)',  label: 'Dark'     },
+      'dusknoir':       { c: '#546e7a', g: 'rgba(84,110,122,0.3)',  label: 'Ghost'    },
+      'gengar':         { c: '#7b1fa2', g: 'rgba(123,31,162,0.3)',  label: 'Ghost'    },
+      'darkrai':        { c: '#212121', g: 'rgba(100,100,120,0.4)', label: 'Dark'     },
+      'weavile':        { c: '#546e7a', g: 'rgba(84,110,122,0.3)',  label: 'Dark'     },
+      'lucario':        { c: '#1565c0', g: 'rgba(21,101,192,0.28)', label: 'Fighting' },
+      'lucario-mega':   { c: '#1565c0', g: 'rgba(21,101,192,0.28)', label: 'Fighting' },
+      'hariyama':       { c: '#e65100', g: 'rgba(230,81,0,0.28)',   label: 'Fighting' },
+      'lopunny':        { c: '#bcaaa4', g: 'rgba(188,170,164,0.28)',label: 'Normal'   },
+      'lopunny-mega':   { c: '#bcaaa4', g: 'rgba(188,170,164,0.28)',label: 'Normal'   },
+      'dudunsparce':    { c: '#bcaaa4', g: 'rgba(188,170,164,0.28)',label: 'Normal'   },
+    };
+
+    const SPRITE_BASE = 'https://r2.limitlesstcg.net/pokemon/gen9/';
+
+    const COMPOUND_NAMES = [
+      'raging-bolt','iron-hands','iron-valiant','iron-moth','iron-jugulis',
+      'iron-treads','iron-boulder','iron-crown','iron-leaves','iron-thorns',
+      'flutter-mane','sandy-shocks','walking-wake','chi-yu','chien-pao',
+      'ting-lu','wo-chien','great-tusk','brute-bonnet','scream-tail',
+      'slither-wing','roaring-moon','koraidon','miraidon',
+    ];
+
+    function buildSprite(deckName) {
+      if (!deckName) return null;
+      let s = deckName.toLowerCase()
+        .replace(/\bex\b|\bvstar\b|\bvmax\b|\bgx\b|\bv\b/g, '')
+        .replace(/\s+/g, '-').replace(/-+/g, '-').replace(/^-|-$/g, '');
+      for (const c of COMPOUND_NAMES) {
+        if (s.startsWith(c)) return SPRITE_BASE + c + '.png';
+      }
+      return SPRITE_BASE + s.split('-')[0] + '.png';
+    }
+
+    function spriteKey(url) {
+      if (!url) return null;
+      return url.split('/').pop().replace('.png','').replace('.jpg','');
+    }
+
+    function getSprite(deckSprite, deckName) {
+      return deckSprite || buildSprite(deckName);
+    }
+
+    function getTheme(player) {
+      const url = getSprite(player.TOP_DECK_SPRITE, player.TOP_DECK_NAME);
+      const key = spriteKey(url);
+      if (key && TYPE_THEMES[key]) return TYPE_THEMES[key];
+      if (player.TOP_DECK_NAME) {
+        const name = player.TOP_DECK_NAME.toLowerCase();
+        for (const [k, v] of Object.entries(TYPE_THEMES)) {
+          if (name.includes(k.replace('-',' ')) || name.includes(k)) return v;
+        }
+      }
+      return { c: '#6c47f5', g: 'rgba(108,71,245,0.25)', label: '' };
+    }
+
+    function limitlesstcg(name) {
+      return `https://limitlesstcg.com/players?q=${encodeURIComponent(name)}`;
+    }
+
+    // ── Trainer Card modal ───────────────────────────────────────────────
+    function _cardTierStyle(title) {
+      const t = (title || '').toLowerCase();
+      if (t.includes('champion')) {
+        return {
+          bg: 'linear-gradient(160deg, #1a1200 0%, #2a1800 100%)',
+          border: '#ffd600',
+          glow: 'rgba(255,214,0,0.35)',
+        };
+      }
+      if (t.includes('elite')) {
+        return {
+          bg: 'linear-gradient(160deg, #0e0830 0%, #1a1040 100%)',
+          border: '#7c4dff',
+          glow: 'rgba(124,77,255,0.35)',
+        };
+      }
+      return {
+        bg: 'linear-gradient(160deg, #0d1520 0%, #111a2a 100%)',
+        border: '#29b6f6',
+        glow: 'rgba(41,182,246,0.25)',
+      };
+    }
+
+    function _renderCard(p) {
+      const title = p.TITLE || p.title || '';
+      const name  = p.PLAYER_NAME || p.player_name || '';
+      const country = p.COUNTRY || p.country || '';
+      const rank  = p.RANK || p.rank;
+      const atp   = p.ATP_SCORE || p.atp_score;
+      const wr    = p.WIN_RATE_PCT || p.win_rate_pct;
+      const top8s = p.TOP8S || p.top8s;
+      const best  = p.BEST_PLACING || p.best_placing;
+      const majors= p.MAJORS_COUNTED || p.majors_counted;
+      const worldsT8 = p.WORLDS_TOP8S || p.worlds_top8s || 0;
+      const deckName = p.TOP_DECK_NAME || p.top_deck_name || '';
+      const deckSprite = p.TOP_DECK_SPRITE || p.top_deck_sprite || null;
+
+      const sprite = getSprite(deckSprite, deckName);
+      const themePlayer = {
+        TOP_DECK_SPRITE: deckSprite,
+        TOP_DECK_NAME: deckName,
+      };
+      const theme = getTheme(themePlayer);
+      const tier  = _cardTierStyle(title);
+
+      const titleBadge = title
+        ? (title.toLowerCase().includes('champion')
+            ? `<span class="badge badge-champion">🏆 ${title}</span>`
+            : title.toLowerCase().includes('elite')
+              ? `<span class="badge badge-elite4">${title}</span>`
+              : ``)
+        : '';
+
+      const rankColor = rank === 1 ? 'var(--gold)' : (rank <= 5 ? 'var(--indigo)' : 'var(--muted)');
+
+      return `
+        <div style="text-align:center;margin-bottom:1rem">
+          <span style="font-size:2rem;font-weight:900;color:${rankColor};line-height:1">#${rank}</span>
+          ${titleBadge ? `<div style="margin-top:0.4rem">${titleBadge}</div>` : ''}
+        </div>
+        ${sprite ? `
+          <div style="text-align:center;margin-bottom:0.75rem">
+            <img src="${sprite}" alt="${deckName}"
+              style="width:96px;height:96px;object-fit:contain;image-rendering:pixelated;
+                     filter:drop-shadow(0 0 14px ${theme.c}99);"
+              onerror="this.style.display='none'">
+            ${deckName ? `<div style="font-size:0.7rem;font-weight:800;color:${theme.c};
+                text-transform:uppercase;letter-spacing:0.07em;margin-top:0.3rem">${deckName}</div>` : ''}
+          </div>` : ''}
+        <div style="text-align:center;margin-bottom:1rem">
+          <div style="font-size:1.5rem;font-weight:900;color:#fff;line-height:1.1">${name}</div>
+          ${country ? `<div style="font-size:0.8rem;color:var(--muted);margin-top:0.25rem;font-weight:600">&#127760; ${country}</div>` : ''}
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.5rem;
+                    padding:0.75rem 0;border-top:1px solid rgba(255,255,255,0.08);
+                    border-bottom:1px solid rgba(255,255,255,0.08);margin-bottom:0.75rem">
+          <div style="text-align:center">
+            <div style="font-size:1.25rem;font-weight:900;color:${theme.c}">${atp != null ? Number(atp).toFixed(1) : '—'}</div>
+            <div style="font-size:0.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.07em;margin-top:0.15rem">ATP</div>
+          </div>
+          <div style="text-align:center">
+            <div style="font-size:1.25rem;font-weight:900;color:var(--green)">${wr != null ? wr + '%' : '—'}</div>
+            <div style="font-size:0.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.07em;margin-top:0.15rem">Win Rate</div>
+          </div>
+          <div style="text-align:center">
+            <div style="font-size:1.25rem;font-weight:900;color:var(--electric)">${top8s ?? '—'}</div>
+            <div style="font-size:0.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.07em;margin-top:0.15rem">Top 8s</div>
+          </div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.5rem;margin-bottom:1rem">
+          <div style="text-align:center">
+            <div style="font-size:1.1rem;font-weight:900;color:var(--electric)">${best != null ? '#' + best : '—'}</div>
+            <div style="font-size:0.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.07em;margin-top:0.1rem">Best</div>
+          </div>
+          <div style="text-align:center">
+            <div style="font-size:1.1rem;font-weight:900;color:var(--violet)">${majors ?? '—'}</div>
+            <div style="font-size:0.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.07em;margin-top:0.1rem">Majors</div>
+          </div>
+          <div style="text-align:center">
+            <div style="font-size:1.1rem;font-weight:900;color:var(--gold)">${worldsT8}</div>
+            <div style="font-size:0.6rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.07em;margin-top:0.1rem">Worlds T8</div>
+          </div>
+        </div>
+        <div style="text-align:center">
+          <a href="${limitlesstcg(name)}" target="_blank" rel="noopener"
+             style="font-size:0.75rem;font-weight:700;color:var(--muted);text-decoration:none;
+                    border:1px solid rgba(255,255,255,0.12);border-radius:6px;padding:0.35rem 0.75rem;
+                    transition:color 0.15s,border-color 0.15s;"
+             onmouseover="this.style.color='var(--text)';this.style.borderColor='rgba(255,255,255,0.3)'"
+             onmouseout="this.style.color='var(--muted)';this.style.borderColor='rgba(255,255,255,0.12)'">
+            &#8599; View on Limitless TCG
+          </a>
+        </div>`;
+    }
+
+    async function showTrainerCard(playerName) {
+      const overlay = document.getElementById('card-overlay');
+      const inner   = document.getElementById('card-inner');
+      const content = document.getElementById('card-content');
+
+      // Reset to loading state
+      inner.style.background = 'var(--surface)';
+      inner.style.borderColor = 'var(--border)';
+      inner.style.boxShadow = 'none';
+      content.innerHTML = `<div style="text-align:center;padding:2rem;color:var(--muted);
+        font-size:0.8rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase">Loading…</div>`;
+      overlay.style.display = 'flex';
+
+      try {
+        const res = await fetch(`/api/player-card/${encodeURIComponent(playerName)}`);
+        if (!res.ok) {
+          content.innerHTML = `<div style="text-align:center;padding:2rem;color:var(--muted);
+            font-size:0.8rem">Player not in current rankings.</div>`;
+          return;
+        }
+        const p = await res.json();
+        const title = p.TITLE || p.title || '';
+        const tier = _cardTierStyle(title);
+        inner.style.background = tier.bg;
+        inner.style.borderColor = tier.border;
+        inner.style.boxShadow = `0 0 40px ${tier.glow}`;
+        content.innerHTML = _renderCard(p);
+      } catch (e) {
+        content.innerHTML = `<div style="text-align:center;padding:2rem;color:var(--red);
+          font-size:0.8rem">Error loading card.</div>`;
+      }
+    }
+
+    function closeTrainerCard() {
+      document.getElementById('card-overlay').style.display = 'none';
+    }
+
+    document.addEventListener('keydown', function(e) {
+      if (e.key === 'Escape') closeTrainerCard();
+    });
+  </script>
 </head>
 <body>
   <nav>
-    <span class="logo">PTCG Scout</span>
+    <a class="logo" href="/">INDIGO <span>CIRCUIT</span></a>
     <a href="/">Search</a>
+    <a href="/league">The League</a>
+    <a href="/leaderboard">Rankings</a>
     <a href="/meta">Meta</a>
   </nav>
   <main>{% block content %}{% endblock %}</main>
   <script>{% block scripts %}{% endblock %}</script>
+
+  <!-- Trainer Card modal -->
+  <div id="card-overlay" onclick="if(event.target===this)closeTrainerCard()"
+       style="display:none; position:fixed; inset:0; background:rgba(0,0,0,0.75);
+              backdrop-filter:blur(6px); z-index:1000; align-items:center; justify-content:center;">
+    <div id="card-inner" style="max-width:320px; width:90%; position:relative;
+         border-radius:18px; padding:1.75rem; border:2px solid; cursor:default;">
+      <button onclick="closeTrainerCard()"
+              style="position:absolute;top:0.75rem;right:0.75rem;background:none;
+                     border:none;color:rgba(255,255,255,0.4);font-size:1.2rem;cursor:pointer;">&#10005;</button>
+      <div id="card-content"></div>
+    </div>
+  </div>
 </body>
 </html>

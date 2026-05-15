@@ -54,7 +54,10 @@ def fetch_standings(tournament_id: str) -> list[dict]:
     resp.raise_for_status()
     time.sleep(0.5)  # be polite
 
-    soup = BeautifulSoup(resp.text, "html.parser")
+    # Use resp.content (bytes) so BS4 reads the charset from the HTML meta tag.
+    # resp.text defaults to latin-1 for text/html, which mangles UTF-8 names
+    # like "Øjvind" → "Ã\x98jvind".
+    soup = BeautifulSoup(resp.content, "html.parser")
     rows = []
 
     for tr in soup.select("table tbody tr"):
@@ -87,6 +90,7 @@ def fetch_standings(tournament_id: str) -> list[dict]:
         # deck archetype: find the cell with a /decks/ link
         deck_id = None
         deck_name = None
+        deck_sprite = None
         for cell in cells:
             deck_link = cell.find("a", href=re.compile(r"/decks/"))
             if deck_link:
@@ -94,7 +98,8 @@ def fetch_standings(tournament_id: str) -> list[dict]:
                 deck_id = deck_href.rstrip("/").split("/")[-1] or None
                 deck_img = cell.find("img")
                 if deck_img:
-                    deck_name = deck_img.get("alt", "").strip() or None
+                    deck_name   = deck_img.get("alt", "").strip() or None
+                    deck_sprite = deck_img.get("src", "").strip() or None
                 break
 
         rows.append({
@@ -107,6 +112,7 @@ def fetch_standings(tournament_id: str) -> list[dict]:
             "ties":        ties,
             "deck_id":     deck_id,
             "deck_name":   deck_name,
+            "deck_sprite": deck_sprite,
         })
 
     return rows
@@ -155,6 +161,7 @@ def ensure_schema(cur):
             TIES                INTEGER,
             DECK_ID             STRING,
             DECK_NAME           STRING,
+            DECK_SPRITE         STRING,
             _LOADED_AT          TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP()
         )
     """)
@@ -183,13 +190,13 @@ def load_standings(cur, tournament_id: str, standings: list[dict]):
         cur.execute("""
             INSERT INTO PTCG_SCOUTING.RAW.MAJOR_STANDINGS
               (LABS_TOURNAMENT_ID, PLAYER_ID, PLAYER_NAME, COUNTRY,
-               PLACING, WINS, LOSSES, TIES, DECK_ID, DECK_NAME)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
+               PLACING, WINS, LOSSES, TIES, DECK_ID, DECK_NAME, DECK_SPRITE)
+            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
         """, (
             tournament_id,
             s["player_id"], s["player_name"], s["country"],
             s["placing"], s["wins"], s["losses"], s["ties"],
-            s["deck_id"], s["deck_name"],
+            s["deck_id"], s["deck_name"], s["deck_sprite"],
         ))
 
 
