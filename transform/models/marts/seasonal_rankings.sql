@@ -183,12 +183,9 @@ select
     round(regional_score, 1)                 as regional_score,
     top_deck_name,
     top_deck_sprite,
-    case rank
-        when 1 then 'Champion'
-        when 2 then 'Elite 1'
-        when 3 then 'Elite 2'
-        when 4 then 'Elite 3'
-        when 5 then 'Elite 4'
+    case
+        when rank = 1            then 'Champion'
+        when rank between 2 and 5 then 'Elite Four'
         else null
     end                                      as title
 from final
