@@ -904,7 +904,7 @@ def _build_og_image() -> bytes:
         radius=10, fill=_hex("2a1a00") + (230,),
         outline=GOLD + (180,), width=2
     )
-    badge_label = "🏆  CHAMPION"
+    badge_label = "CHAMPION"
     bl_w = draw.textlength(badge_label, font=f_med)
     draw.text((cx - bl_w // 2, badge_y + (badge_h - 32) // 2), badge_label, font=f_med, fill=GOLD + (255,))
 
