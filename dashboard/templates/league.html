@@ -2,6 +2,30 @@
 {% block title %}Indigo Circuit — The League{% endblock %}
 
 {% block content %}
+<div style="display:flex;align-items:flex-start;justify-content:space-between;
+            gap:1rem;margin-bottom:1.75rem;flex-wrap:wrap">
+  <div>
+    <h1 style="font-size:1.6rem;font-weight:900;line-height:1.1">The League</h1>
+    <p style="color:var(--muted);font-size:0.8rem;font-weight:600;margin-top:0.25rem;
+              letter-spacing:0.04em;text-transform:uppercase">ATP rankings · Major tournaments · Rolling 52 weeks</p>
+  </div>
+  <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;
+              padding:0.65rem 1rem;font-size:0.72rem;color:var(--muted);font-weight:600;
+              max-width:360px;line-height:1.6">
+    <div style="margin-bottom:0.5rem">
+      <span style="color:var(--electric);font-weight:800">Champion &amp; Elite Four</span>
+      — ATP score: √(field ÷ placing) × tier weight, summed across all results in the last 52 weeks.
+      Tier weights: Worlds ×10 · IC ×6 · Regional ×3 · SPE ×0.75.
+      6-month half-life decay keeps rankings current. Min 2 events to appear.
+    </div>
+    <div>
+      <span style="color:var(--green);font-weight:800">Gym Leaders</span>
+      — top specialist per archetype. Scored by season-weighted placement × log(event count).
+      Min 3 events with that deck to qualify.
+    </div>
+  </div>
+</div>
+
 <div id="loading" class="loading-state">
   <div class="spinner"></div><span>Loading rankings…</span>
 </div>
