@@ -417,8 +417,26 @@ def _load_formats():
         return sorted(json.load(f), key=lambda x: x['start'])
 
 
+def _format_window(since: str):
+    """Given a format start date string, return (format_name, since, until).
+    until is the start of the *next* format so windows are strictly non-overlapping.
+    For the current (latest) active format, until is None (no upper bound).
+    """
+    fmts  = _load_formats()
+    today = date.today().isoformat()
+    active = [f for f in fmts if f['start'] <= today]
+    match  = next((f for f in reversed(active) if f['start'] <= since), None)
+    fmt_name = match['name'] if match else since
+    if match and match in active:
+        idx   = active.index(match)
+        until = active[idx + 1]['start'] if idx + 1 < len(active) else None
+    else:
+        until = None
+    return fmt_name, since, until
+
+
 def _current_format_cutoff():
-    """Return (format_name, start_date) for the current Standard format.
+    """Return (format_name, since, until) for the current Standard format.
     Falls back to the previous format if no majors have occurred yet in the
     newest set — so we never serve an empty meta page.
     """
@@ -426,7 +444,7 @@ def _current_format_cutoff():
     today = date.today().isoformat()
     active = [x for x in fmts if x['start'] <= today]
     if not active:
-        return fmts[0]['name'], fmts[0]['start']
+        return fmts[0]['name'], fmts[0]['start'], None
 
     current = active[-1]
     prev    = active[-2] if len(active) >= 2 else current
@@ -437,7 +455,9 @@ def _current_format_cutoff():
         (current['start'],),
     )
     use = current if rows else prev
-    return use['name'], use['start']
+    # Current format has no upper bound; if we fell back, cap at current format's start
+    until = current['start'] if use is prev else None
+    return use['name'], use['start'], until
 
 
 @app.get("/api/formats")
@@ -453,13 +473,12 @@ def formats_list():
 def meta_stats():
     since_override = request.args.get("since")   # e.g. ?since=2026-04-25
     if since_override:
-        # Resolve the format name for this cutoff date
-        fmts = _load_formats()
-        match = next((f for f in reversed(fmts) if f['start'] <= since_override), None)
-        fmt_name = match['name'] if match else since_override
-        cutoff   = since_override
+        fmt_name, cutoff, until = _format_window(since_override)
     else:
-        fmt_name, cutoff = _current_format_cutoff()
+        fmt_name, cutoff, until = _current_format_cutoff()
+
+    until_clause = "AND tournament_date < %s" if until else ""
+    params = (cutoff, until) if until else (cutoff,)
 
     rows = query(
         f"""
@@ -483,11 +502,12 @@ def meta_stats():
         FROM PTCG_SCOUTING.{MARTS}.MAJOR_PLAYER_HISTORY
         WHERE deck_name is not null
           AND tournament_date >= %s
+          {until_clause}
         GROUP BY deck_name
         ORDER BY appearances DESC
         LIMIT 30
         """,
-        (cutoff,),
+        params,
     )
     return jsonify({"format": {"name": fmt_name, "since": cutoff}, "archetypes": rows})
 
@@ -496,9 +516,12 @@ def meta_stats():
 def meta_top_finishes():
     since_override = request.args.get("since")
     if since_override:
-        cutoff = since_override
+        _, cutoff, until = _format_window(since_override)
     else:
-        _, cutoff = _current_format_cutoff()
+        _, cutoff, until = _current_format_cutoff()
+
+    until_clause = "AND tournament_date < %s" if until else ""
+    params = (cutoff, until) if until else (cutoff,)
 
     rows = query(
         f"""
@@ -508,10 +531,11 @@ def meta_top_finishes():
         WHERE deck_name IS NOT NULL
           AND placing <= 8
           AND tournament_date >= %s
+          {until_clause}
         ORDER BY deck_name, placing, tournament_date DESC
         LIMIT 500
         """,
-        (cutoff,),
+        params,
     )
     result: dict = {}
     for r in rows:
