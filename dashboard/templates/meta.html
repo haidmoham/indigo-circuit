@@ -35,7 +35,7 @@
               gap:1rem;margin-bottom:3rem"></div>
 
   <!-- Charts -->
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin-bottom:2rem">
+  <div class="chart-grid">
     <div class="card">
       <div class="card-title">Meta Share</div>
       <div id="chart-share"></div>
@@ -93,9 +93,9 @@ async function load(sinceOverride) {
 
   // Summary strip
   const totalEntries = decks.reduce((s, d) => s + (d.APPEARANCES || 0), 0);
-  const mostTop8s    = decks.reduce((best, d) =>
-    (d.TOP8S || 0) > (best.TOP8S || 0) ? d : best, decks[0]);
-  const mostPlayed   = decks[0];
+  const mostTop8s    = decks.length ? decks.reduce((best, d) =>
+    (d.TOP8S || 0) > (best.TOP8S || 0) ? d : best) : null;
+  const mostPlayed   = decks[0] || null;
 
   document.getElementById('meta-summary').innerHTML = [
     { label: 'Archetypes',   val: decks.length,                    color: 'var(--violet)'   },
@@ -111,6 +111,9 @@ async function load(sinceOverride) {
   ).join('');
 
   // ── Archetype cards ──────────────────────────────────────────────────────
+  // Bar fill: scale so the #1 deck always hits 100%, others proportional to it
+  const maxAppearances = decks.length ? Math.max(...decks.map(d => d.APPEARANCES || 0)) : 1;
+
   document.getElementById('archetype-grid').innerHTML = decks.map((d, idx) => {
     const deckName   = d.DECK_NAME || '';
     const deckSprite = d.DECK_SPRITE || null;
@@ -178,7 +181,7 @@ async function load(sinceOverride) {
 
       <!-- Meta share bar -->
       <div style="background:rgba(255,255,255,0.06);border-radius:4px;height:4px;overflow:hidden">
-        <div style="width:${Math.min(parseFloat(metaShare) * 2.5, 100)}%;
+        <div style="width:${maxAppearances ? Math.min((d.APPEARANCES || 0) / maxAppearances * 100, 100) : 0}%;
                     background:${theme.c};height:100%;border-radius:4px;
                     transition:width 0.6s ease"></div>
       </div>

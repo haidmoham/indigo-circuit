@@ -51,7 +51,7 @@
               gap:0.75rem;margin-bottom:1.75rem" id="stats"></div>
 
   <!-- Charts ---------------------------------------------------------------->
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:1.5rem;margin-bottom:1.75rem">
+  <div class="chart-grid">
     <div class="card">
       <div class="card-title">Placement History</div>
       <div id="chart-placements"></div>
@@ -98,7 +98,7 @@ async function load() {
   }
 
   // Deck sprite from top deck
-  const spriteUrl = r?.TOP_DECK_SPRITE ? getSprite(r.TOP_DECK_SPRITE, r.TOP_DECK_NAME) : null;
+  const spriteUrl = getSprite(r?.TOP_DECK_SPRITE, r?.TOP_DECK_NAME);
   if (spriteUrl) {
     document.getElementById('player-sprite').src = spriteUrl;
     document.getElementById('player-sprite-wrap').style.display = '';
@@ -109,14 +109,14 @@ async function load() {
 
   // Title badges
   const badges = [];
-  if (r?.TITLE === 'Champion') {
+  if (r?.TITLE?.includes('Champion')) {
     badges.push(`<span style="background:#f59e0b22;color:#f59e0b;border:1px solid #f59e0b44;
       padding:0.2rem 0.55rem;border-radius:6px;font-size:0.7rem;font-weight:800;
-      letter-spacing:0.07em;text-transform:uppercase">🏆 Champion</span>`);
-  } else if (r?.TITLE === 'Elite Four') {
+      letter-spacing:0.07em;text-transform:uppercase">🏆 ${r.TITLE}</span>`);
+  } else if (r?.TITLE?.includes('Elite')) {
     badges.push(`<span style="background:#6366f122;color:#818cf8;border:1px solid #6366f144;
       padding:0.2rem 0.55rem;border-radius:6px;font-size:0.7rem;font-weight:800;
-      letter-spacing:0.07em;text-transform:uppercase">Elite Four</span>`);
+      letter-spacing:0.07em;text-transform:uppercase">${r.TITLE}</span>`);
   }
   if (r?.GYM_LEADER_OF) {
     const t = getTheme({ TOP_DECK_NAME: r.GYM_LEADER_OF });

@@ -130,7 +130,9 @@ async function load() {
 
   // ── Elite Four ────────────────────────────────────────────────────────
   const elite4 = lb.slice(1, 5);
-  document.getElementById('elite4').innerHTML = elite4.map((p) => {
+  document.getElementById('elite4').innerHTML = !elite4.length
+    ? '<p style="color:var(--muted)">Not enough data yet.</p>'
+    : elite4.map((p) => {
     const theme = getTheme(p);
     const sprite = getSprite(p.TOP_DECK_SPRITE, p.TOP_DECK_NAME);
     return `
