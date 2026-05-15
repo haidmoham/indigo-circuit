@@ -40,12 +40,13 @@ select
     -- Tier bonus — overrides raw table values to enforce prestige hierarchy:
     --   Worlds wins are legacy-defining, IC wins are season-defining,
     --   Regional wins are the baseline achievement worth chasing.
-    --   Special events are participation-tier relative to these.
+    --   Special events have no cash prizing and reflect community sentiment
+    --   as a lower tier than Regionals — weighted below the fallback floor.
     case t.tier
         when 'worlds'        then 10.0
         when 'international' then  6.0
         when 'regional'      then  3.0
-        when 'special'       then  1.2
+        when 'special'       then  0.75
         else                        1.0
     end                                                      as tier_weight,
 
@@ -57,7 +58,7 @@ select
             when 'worlds'        then 10.0
             when 'international' then  6.0
             when 'regional'      then  3.0
-            when 'special'       then  1.2
+            when 'special'       then  0.75
             else                        1.0
           end                                               as placement_score
 from with_count w
