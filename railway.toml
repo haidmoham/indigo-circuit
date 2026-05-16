@@ -2,5 +2,5 @@
 builder = "nixpacks"
 
 [deploy]
-startCommand = "gunicorn dashboard.app:app --bind 0.0.0.0:$PORT --timeout 60 --workers 2"
+startCommand = "gunicorn dashboard.app:app --bind 0.0.0.0:$PORT --timeout 60 --workers 2 --access-logfile - --access-logformat '%(h)s %(l)s %(u)s %(t)s \"%(r)s\" %(s)s %(b)s'"
 restartPolicyType = "always"
