@@ -194,6 +194,13 @@
       background: rgba(160,124,248,0.1);
     }
 
+    /* ── Boss breathing glow ──────────────────────────────────────── */
+    @keyframes boss-breathe {
+      0%, 100% { box-shadow: 0 0 5px rgba(229,62,62,0.5), 0 0 12px rgba(120,0,0,0.25), 0 0 0 1px rgba(255,255,255,0.03); }
+      50%       { box-shadow: 0 0 24px rgba(229,62,62,0.55), 0 0 48px rgba(140,0,0,0.28), 0 0 72px rgba(80,0,0,0.18), 0 0 0 1px rgba(255,255,255,0.06); }
+    }
+    .boss-card { animation: boss-breathe 4s ease-in-out infinite; }
+
     /* ── Champion breathing glow ───────────────────────────────────── */
     @keyframes champ-breathe {
       0%, 100% { box-shadow: 0 0 8px var(--champ-glow), 0 0 20px var(--champ-glow-wide), 0 0 0 1px rgba(255,255,255,0.04); }

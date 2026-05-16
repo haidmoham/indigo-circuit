@@ -83,11 +83,10 @@ async function load() {
     const sprite   = getSprite(null, deckName);
 
     document.getElementById('boss-section').innerHTML = `
-      <div style="
+      <div class="boss-card" style="
         background: linear-gradient(135deg, #1a0505 0%, #200808 100%);
         border: 2px solid ${D_RED};
         border-radius: 16px; padding: 2rem;
-        box-shadow: 0 0 60px ${D_GLOW}, 0 0 0 1px rgba(255,255,255,0.03);
       ">
         <div style="display:flex;align-items:center;gap:2rem;flex-wrap:wrap">
           ${sprite ? `<img src="${sprite}" alt="${deckName}"
