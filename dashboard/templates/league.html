@@ -96,8 +96,8 @@ async function load() {
     const sprite = getSprite(champ.TOP_DECK_SPRITE, champ.TOP_DECK_NAME);
     document.getElementById('champion-section').innerHTML = `
       <div class="champion-card" style="
-        --champ-glow: ${theme.g};
-        --champ-glow-wide: ${theme.c}38;
+        --champ-glow: rgba(255,171,0,0.5);
+        --champ-glow-wide: rgba(255,171,0,0.22);
         background: linear-gradient(135deg, #13103a 0%, #1a1010 100%);
         border: 2px solid ${theme.c};
         border-radius: 16px; padding: 2rem;
