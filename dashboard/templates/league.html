@@ -95,11 +95,13 @@ async function load() {
     const theme = getTheme(champ);
     const sprite = getSprite(champ.TOP_DECK_SPRITE, champ.TOP_DECK_NAME);
     document.getElementById('champion-section').innerHTML = `
-      <div style="
+      <div class="champion-card" style="
+        --champ-glow: ${theme.g};
+        --champ-glow-wide: ${theme.c}18;
         background: linear-gradient(135deg, #13103a 0%, #1a1010 100%);
         border: 2px solid ${theme.c};
         border-radius: 16px; padding: 2rem;
-        box-shadow: 0 0 60px ${theme.g}, 0 0 0 1px rgba(255,255,255,0.04);
+        position: relative; overflow: hidden;
       ">
         <div style="display:flex; align-items:center; gap:2rem; flex-wrap:wrap">
           <!-- Sprite -->
@@ -159,15 +161,22 @@ async function load() {
     : elite4.map((p) => {
     const theme = getTheme(p);
     const sprite = getSprite(p.TOP_DECK_SPRITE, p.TOP_DECK_NAME);
+    const rank = elite4.indexOf(p) + 2;
     return `
     <div style="
       background: var(--surface);
-      border: 1.5px solid ${theme.c}55;
+      border: 1.5px solid ${theme.c}66;
       border-left: 3px solid ${theme.c};
       border-radius: 14px; padding: 1.25rem;
-      box-shadow: 0 0 24px ${theme.g};
+      box-shadow: 0 0 18px ${theme.g}, 0 0 40px ${theme.c}14, inset 0 0 20px ${theme.c}06;
       position: relative; overflow: hidden;
     ">
+      <!-- Rank watermark -->
+      <div style="position:absolute;right:-0.1rem;top:-0.75rem;
+                  font-size:5.5rem;font-weight:900;line-height:1;
+                  color:${theme.c};opacity:0.06;pointer-events:none;user-select:none">
+        ${rank}
+      </div>
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.85rem">
         <div style="display:flex;gap:0.4rem;flex-wrap:wrap">
           <span class="badge badge-elite4">Elite Four</span>

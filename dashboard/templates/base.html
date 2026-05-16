@@ -194,6 +194,15 @@
       background: rgba(160,124,248,0.1);
     }
 
+    /* ── Champion breathing glow ───────────────────────────────────── */
+    @keyframes champ-breathe {
+      0%, 100% { box-shadow: 0 0 40px var(--champ-glow), 0 0 80px var(--champ-glow-wide), 0 0 0 1px rgba(255,255,255,0.04); }
+      50%       { box-shadow: 0 0 70px var(--champ-glow), 0 0 130px var(--champ-glow-wide), 0 0 0 1px rgba(255,255,255,0.07); }
+    }
+    .champion-card {
+      animation: champ-breathe 3s ease-in-out infinite;
+    }
+
     /* ── Responsive chart grid ─────────────────────────────────────── */
     .chart-grid {
       display: grid;
