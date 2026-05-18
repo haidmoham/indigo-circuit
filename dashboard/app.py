@@ -37,7 +37,11 @@ _conn: duckdb.DuckDBPyConnection | None = None
 def _connect():
     if not os.path.exists(DUCKDB_PATH):
         return None
-    return duckdb.connect(DUCKDB_PATH, read_only=True)
+    try:
+        return duckdb.connect(DUCKDB_PATH, read_only=True)
+    except duckdb.IOException:
+        # Pipeline is currently writing — treat as "not ready yet"
+        return None
 
 
 def get_conn():
@@ -921,6 +925,7 @@ _prewarm_thread.start()
 import subprocess
 
 def _run_pipeline():
+    global _conn
     log = app.logger
     log.info("[pipeline] Starting nightly run")
     base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -931,10 +936,19 @@ def _run_pipeline():
         ["bash",    "ingest/pipeline.sh", "--dbt-only"],
     ]
     for cmd in steps:
+        # Close the gunicorn read-only connection before each write step
+        # so DuckDB's exclusive write lock isn't blocked by our reader.
+        with _conn_lock:
+            if _conn:
+                try:
+                    _conn.close()
+                except Exception:
+                    pass
+                _conn = None
         try:
             result = subprocess.run(cmd, cwd=base, capture_output=True, text=True, timeout=1800)
             if result.returncode != 0:
-                log.error(f"[pipeline] {cmd[1]} failed:\n{result.stderr[-2000:]}")
+                log.error(f"[pipeline] {cmd[1]} failed:\n{result.stderr[-3000:]}")
             else:
                 log.info(f"[pipeline] {cmd[1]} done")
         except Exception as e:
