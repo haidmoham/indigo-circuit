@@ -1,6 +1,6 @@
 """
 Indigo Circuit — Flask dashboard.
-Reads from Snowflake PTCG_SCOUTING via environment variables.
+Reads from DuckDB via DUCKDB_PATH environment variable.
 """
 import json
 import os
@@ -8,10 +8,11 @@ import re
 import threading
 import time
 from datetime import date
+from pathlib import Path
 from urllib.parse import quote as urlquote
 
+import duckdb
 import requests as http
-import snowflake.connector
 from flask import Flask, render_template, request, jsonify, redirect
 from flask_compress import Compress
 from dotenv import load_dotenv
@@ -22,35 +23,27 @@ app = Flask(__name__)
 Compress(app)   # gzip all JSON/HTML responses >500 bytes automatically
 
 # Schema where dbt marts live (override with env var in production)
-MARTS = os.environ.get("DBT_MARTS_SCHEMA", "DBT_DEV_MARTS")
+MARTS = os.environ.get("DBT_MARTS_SCHEMA", "dbt_dev_marts")
+DUCKDB_PATH = os.environ.get("DUCKDB_PATH", str(Path(__file__).parent.parent / "data" / "ptcg.duckdb"))
 
 
 # ---------------------------------------------------------------------------
-# Persistent Snowflake connection (one per worker process)
-# Eliminates the ~1-2s connect overhead on every request.
+# Persistent DuckDB connection (read-only, one per worker process)
 # ---------------------------------------------------------------------------
 _conn_lock = threading.Lock()
-_conn: snowflake.connector.SnowflakeConnection | None = None
+_conn: duckdb.DuckDBPyConnection | None = None
 
 
 def _connect():
-    return snowflake.connector.connect(
-        account=os.environ["SNOWFLAKE_ACCOUNT"],
-        user=os.environ["SNOWFLAKE_USER"],
-        password=os.environ["SNOWFLAKE_PASSWORD"],
-        database=os.environ.get("SNOWFLAKE_DATABASE", "PTCG_SCOUTING"),
-        warehouse=os.environ.get("SNOWFLAKE_WAREHOUSE", "COMPUTE_WH"),
-        role=os.environ.get("SNOWFLAKE_ROLE", "ACCOUNTADMIN"),
-        # Keep the session alive so the warehouse doesn't suspend mid-use
-        client_session_keep_alive=True,
-    )
+    return duckdb.connect(DUCKDB_PATH, read_only=True)
 
 
-def get_conn() -> snowflake.connector.SnowflakeConnection:
+def get_conn():
     global _conn
     with _conn_lock:
         try:
-            if _conn and not _conn.is_closed():
+            if _conn:
+                _conn.execute("SELECT 1")
                 return _conn
         except Exception:
             pass
@@ -59,27 +52,19 @@ def get_conn() -> snowflake.connector.SnowflakeConnection:
 
 
 def query(sql, params=None):
-    """Execute SQL and return list-of-dicts. Reconnects once on failure."""
+    """Execute SQL and return list-of-dicts with UPPERCASE keys. Reconnects once on failure."""
     for attempt in range(2):
-        conn = get_conn()
-        cur = conn.cursor(snowflake.connector.DictCursor)
         try:
-            cur.execute(sql, params or ())
-            return cur.fetchall()
+            conn = get_conn()
+            cur = conn.execute(sql, params or [])
+            cols = [d[0].upper() for d in cur.description]
+            return [dict(zip(cols, row)) for row in cur.fetchall()]
         except Exception:
-            cur.close()
-            if attempt == 0:
-                # Force reconnect and retry once
-                with _conn_lock:
-                    global _conn
-                    _conn = None
-            else:
+            with _conn_lock:
+                global _conn
+                _conn = None
+            if attempt > 0:
                 raise
-        finally:
-            try:
-                cur.close()
-            except Exception:
-                pass
 
 
 # ---------------------------------------------------------------------------
@@ -147,19 +132,8 @@ _lid_table_ready: bool = False
 
 
 def _ensure_lid_table():
+    # Read-only connection — skip table creation; rely on in-memory cache only
     global _lid_table_ready
-    if _lid_table_ready:
-        return
-    try:
-        query("""
-            CREATE TABLE IF NOT EXISTS RAW.LIMITLESS_PLAYER_IDS (
-                player_name_lower VARCHAR NOT NULL,
-                limitless_id      VARCHAR,
-                resolved_at       TIMESTAMP_LTZ DEFAULT CURRENT_TIMESTAMP()
-            )
-        """)
-    except Exception:
-        pass
     _lid_table_ready = True
 
 
@@ -171,18 +145,8 @@ def _resolve_limitless_id(name: str):
     if key in _lid_cache:
         return _lid_cache[key]
 
-    # L2 — Snowflake cache
-    try:
-        rows = query(
-            "SELECT limitless_id FROM RAW.LIMITLESS_PLAYER_IDS WHERE player_name_lower = %s",
-            (key,),
-        )
-        if rows:
-            lid = rows[0].get("LIMITLESS_ID")
-            _lid_cache[key] = lid
-            return lid
-    except Exception:
-        pass
+    # No persistent cache (read-only DB); in-memory L1 cache above is sufficient
+
 
     # Live fetch — first result of limitlesstcg.com player search
     lid = None
@@ -201,21 +165,7 @@ def _resolve_limitless_id(name: str):
 
     _lid_cache[key] = lid
 
-    # Persist result (MERGE = upsert so re-runs overwrite stale entries)
-    try:
-        query(
-            """
-            MERGE INTO RAW.LIMITLESS_PLAYER_IDS t
-            USING (SELECT %s AS k, %s AS v) s ON t.player_name_lower = s.k
-            WHEN MATCHED THEN UPDATE SET limitless_id = s.v,
-                                         resolved_at  = CURRENT_TIMESTAMP()
-            WHEN NOT MATCHED THEN INSERT (player_name_lower, limitless_id)
-                                  VALUES (s.k, s.v)
-            """,
-            (key, lid),
-        )
-    except Exception:
-        pass  # non-fatal; in-memory cache still works
+    # In-memory only — no write-back (read-only DB connection)
 
     return lid
 
@@ -291,7 +241,7 @@ def search_players():
             min(placing)                    AS best_placement,
             -- most recent player_id as canonical Limitless profile link
             max_by(player_id, tournament_date) AS player_id
-        FROM PTCG_SCOUTING.{MARTS}.MAJOR_PLAYER_HISTORY
+        FROM {MARTS}.MAJOR_PLAYER_HISTORY
         WHERE lower(player_name) LIKE lower(%s)
           AND player_id IS NOT NULL
         GROUP BY lower(player_name)
@@ -315,8 +265,8 @@ def player_stats(name):
                sr.worlds_top8s, sr.ic_top8s, sr.regional_top8s,
                sr.last_played, sr.worlds_score, sr.ic_score, sr.regional_score,
                mgl.archetype AS gym_leader_of
-        FROM PTCG_SCOUTING.{MARTS}.SEASONAL_RANKINGS sr
-        LEFT JOIN PTCG_SCOUTING.{MARTS}.MAJOR_GYM_LEADERS mgl
+        FROM {MARTS}.SEASONAL_RANKINGS sr
+        LEFT JOIN {MARTS}.MAJOR_GYM_LEADERS mgl
           ON lower(sr.player_name) = lower(mgl.player_name)
           AND mgl.is_gym_leader = TRUE
         WHERE lower(sr.player_name) = lower(%s)
@@ -330,9 +280,9 @@ def player_stats(name):
         f"""
         SELECT tournament_name, tournament_date, placing, player_count,
                normalized_placement, wins, losses, deck_name, tier, tournament_id
-        FROM PTCG_SCOUTING.{MARTS}.MAJOR_PLAYER_HISTORY
+        FROM {MARTS}.MAJOR_PLAYER_HISTORY
         WHERE lower(player_name) = lower(%s)
-          AND tournament_date >= DATEADD('week', -52, CURRENT_DATE())
+          AND tournament_date >= current_date - INTERVAL '52 weeks'
         ORDER BY tournament_date DESC
         """,
         (name,),
@@ -352,10 +302,10 @@ def player_stats(name):
                min(placing)                                                      AS best_placing,
                min(tournament_date)                                              AS first_played,
                max(tournament_date)                                              AS last_played
-        FROM PTCG_SCOUTING.{MARTS}.MAJOR_PLAYER_HISTORY
+        FROM {MARTS}.MAJOR_PLAYER_HISTORY
         WHERE lower(player_name) = lower(%s)
           AND deck_name IS NOT NULL
-          AND tournament_date >= DATEADD('week', -52, CURRENT_DATE())
+          AND tournament_date >= current_date - INTERVAL '52 weeks'
         GROUP BY deck_name
         ORDER BY times_played DESC
         """,
@@ -380,7 +330,7 @@ def online_leaderboard():
                        PARTITION BY player_username
                        ORDER BY times_played DESC
                    ) AS rn
-            FROM PTCG_SCOUTING.{MARTS}.PLAYER_ARCHETYPE_HISTORY
+            FROM {MARTS}.PLAYER_ARCHETYPE_HISTORY
         )
         SELECT pe.player_username, pe.player_name, pe.country,
                pe.tournaments_entered, pe.total_wins, pe.total_losses,
@@ -395,7 +345,7 @@ def online_leaderboard():
                pe.last_played::date::varchar      AS last_played,
                td.deck_name                       AS top_deck_name,
                td.deck_id                         AS top_deck_id
-        FROM PTCG_SCOUTING.{MARTS}.PLAYERS_ENRICHED pe
+        FROM {MARTS}.PLAYERS_ENRICHED pe
         LEFT JOIN top_decks td
           ON pe.player_username = td.player_username AND td.rn = 1
         WHERE pe.glicko_rating IS NOT NULL
@@ -428,8 +378,8 @@ def online_archetype_aces():
                     PARTITION BY pah.deck_id
                     ORDER BY pah.win_rate DESC NULLS LAST, pah.times_played DESC
                 ) AS rn
-            FROM PTCG_SCOUTING.{MARTS}.PLAYER_ARCHETYPE_HISTORY pah
-            LEFT JOIN PTCG_SCOUTING.{MARTS}.PLAYERS_ENRICHED pe
+            FROM {MARTS}.PLAYER_ARCHETYPE_HISTORY pah
+            LEFT JOIN {MARTS}.PLAYERS_ENRICHED pe
               ON pah.player_username = pe.player_username
             WHERE pah.times_played >= 3
               AND pah.win_rate > 0.55
@@ -453,8 +403,8 @@ def tech_decks():
             SELECT cas.deck_id,
                    MAX(pah.deck_name) AS deck_name,
                    MAX(cas.total_lists) AS total_lists
-            FROM PTCG_SCOUTING.{MARTS}.CARD_ARCHETYPE_STATS cas
-            LEFT JOIN PTCG_SCOUTING.{MARTS}.PLAYER_ARCHETYPE_HISTORY pah
+            FROM {MARTS}.CARD_ARCHETYPE_STATS cas
+            LEFT JOIN {MARTS}.PLAYER_ARCHETYPE_HISTORY pah
               ON cas.deck_id = pah.deck_id
             GROUP BY cas.deck_id
             HAVING MAX(cas.total_lists) >= 3
@@ -478,7 +428,7 @@ def tech_cards(deck_id):
                    round(inclusion_rate * 100, 1)       AS inclusion_pct,
                    round(avg_count_when_included, 2)     AS avg_copies,
                    is_tech_card
-            FROM PTCG_SCOUTING.{MARTS}.CARD_ARCHETYPE_STATS
+            FROM {MARTS}.CARD_ARCHETYPE_STATS
             WHERE deck_id = %s
             ORDER BY card_category,
                      inclusion_rate DESC
@@ -493,7 +443,7 @@ def head_to_head(username, opponent):
     rows = query(
         f"""
         SELECT matches_played, wins, losses, ties, win_rate
-        FROM PTCG_SCOUTING.{MARTS}.PLAYER_VS_PLAYER
+        FROM {MARTS}.PLAYER_VS_PLAYER
         WHERE player_username = %s AND opponent_username = %s
         """,
         (username, opponent),
@@ -541,7 +491,7 @@ def _current_format_cutoff():
         current = active[-1]
         prev    = active[-2] if len(active) >= 2 else current
         rows = query(
-            f"SELECT 1 FROM PTCG_SCOUTING.{MARTS}.MAJOR_PLAYER_HISTORY"
+            f"SELECT 1 FROM {MARTS}.MAJOR_PLAYER_HISTORY"
             f" WHERE tournament_date >= %s LIMIT 1",
             (current['start'],),
         )
@@ -593,7 +543,7 @@ def meta_stats():
                        / nullif(count(*), 0), 3
                    )                                                               as day2_rate,
                    min(placing)                                                    as best_placing
-            FROM PTCG_SCOUTING.{MARTS}.MAJOR_PLAYER_HISTORY
+            FROM {MARTS}.MAJOR_PLAYER_HISTORY
             WHERE deck_name is not null
               AND tournament_date >= %s
               {until_clause}
@@ -625,7 +575,7 @@ def meta_top_finishes():
             f"""
             SELECT deck_name, player_name, player_id, placing,
                    tournament_name, tournament_date, tournament_id
-            FROM PTCG_SCOUTING.{MARTS}.MAJOR_PLAYER_HISTORY
+            FROM {MARTS}.MAJOR_PLAYER_HISTORY
             WHERE deck_name IS NOT NULL
               AND placing <= 8
               AND tournament_date >= %s
@@ -665,8 +615,8 @@ def leaderboard_data():
                    sr.worlds_score, sr.ic_score, sr.regional_score,
                    sr.top_deck_name, sr.top_deck_sprite,
                    mgl.archetype AS gym_leader_of
-            FROM PTCG_SCOUTING.{MARTS}.SEASONAL_RANKINGS sr
-            LEFT JOIN PTCG_SCOUTING.{MARTS}.MAJOR_GYM_LEADERS mgl
+            FROM {MARTS}.SEASONAL_RANKINGS sr
+            LEFT JOIN {MARTS}.MAJOR_GYM_LEADERS mgl
               ON lower(sr.player_name) = lower(mgl.player_name)
               AND mgl.is_gym_leader = TRUE
             ORDER BY sr.rank
@@ -685,8 +635,8 @@ def player_card(name):
                sr.top_deck_name, sr.top_deck_sprite,
                sr.worlds_top8s, sr.ic_top8s, sr.regional_top8s,
                mgl.archetype AS gym_leader_of
-        FROM PTCG_SCOUTING.{MARTS}.SEASONAL_RANKINGS sr
-        LEFT JOIN PTCG_SCOUTING.{MARTS}.MAJOR_GYM_LEADERS mgl
+        FROM {MARTS}.SEASONAL_RANKINGS sr
+        LEFT JOIN {MARTS}.MAJOR_GYM_LEADERS mgl
           ON lower(sr.player_name) = lower(mgl.player_name)
           AND mgl.is_gym_leader = TRUE
         WHERE lower(sr.player_name) = lower(%s)
@@ -706,7 +656,7 @@ def gym_leaders_data():
             f"""
             SELECT archetype, deck_sprite, player_name, player_id,
                    tournament_count, win_rate_pct, gym_leader_score, last_played
-            FROM PTCG_SCOUTING.{MARTS}.MAJOR_GYM_LEADERS
+            FROM {MARTS}.MAJOR_GYM_LEADERS
             WHERE is_gym_leader = TRUE
             ORDER BY gym_leader_score DESC
             LIMIT 30
@@ -825,7 +775,7 @@ def _build_og_image() -> bytes:
             SELECT sr.rank, sr.player_name, sr.country, sr.atp_score,
                    sr.win_rate_pct, sr.top8s, sr.best_placing,
                    sr.top_deck_name, sr.top_deck_sprite, sr.majors_counted
-            FROM PTCG_SCOUTING.{MARTS}.SEASONAL_RANKINGS sr
+            FROM {MARTS}.SEASONAL_RANKINGS sr
             WHERE sr.rank = 1
             LIMIT 1
             """

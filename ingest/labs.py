@@ -1,5 +1,5 @@
 """
-Ingest major tournament data from Limitless Labs into Snowflake.
+Ingest major tournament data from Limitless Labs into DuckDB.
 
 Labs covers official Play Pokémon events (Regionals, ICs, Worlds) sourced
 from RK9. Tournaments are curated in data/major_tournaments.json.
@@ -19,8 +19,8 @@ import sys
 import time
 from pathlib import Path
 
+import duckdb
 import requests
-import snowflake.connector
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 
@@ -30,6 +30,7 @@ log = logging.getLogger(__name__)
 
 LABS_BASE = "https://labs.limitlesstcg.com"
 DATA_DIR = Path(__file__).parent.parent / "data"
+DUCKDB_PATH = os.environ.get("DUCKDB_PATH", str(Path(__file__).parent.parent / "data" / "ptcg.duckdb"))
 
 TIER_BONUS = {
     "worlds":        3.0,
@@ -54,9 +55,6 @@ def fetch_standings(tournament_id: str) -> list[dict]:
     resp.raise_for_status()
     time.sleep(0.5)  # be polite
 
-    # Use resp.content (bytes) so BS4 reads the charset from the HTML meta tag.
-    # resp.text defaults to latin-1 for text/html, which mangles UTF-8 names
-    # like "Øjvind" → "Ã\x98jvind".
     soup = BeautifulSoup(resp.content, "html.parser")
     rows = []
 
@@ -68,17 +66,14 @@ def fetch_standings(tournament_id: str) -> list[dict]:
         placing_text = cells[0].get_text(strip=True)
         placing = int(re.sub(r"\D", "", placing_text)) if re.sub(r"\D", "", placing_text) else None
 
-        # player name + player_id from href
         name_link = cells[1].find("a")
         player_name = name_link.get_text(strip=True) if name_link else cells[1].get_text(strip=True)
         player_href = name_link["href"] if name_link else ""
         player_id = player_href.split("/")[-1] if player_href else None
 
-        # country from flag img title
         flag_img = cells[1].find("img")
         country = flag_img["title"] if flag_img and flag_img.get("title") else None
 
-        # record: search all cells for pattern "W - L - T" or "W-L-T"
         wins = losses = ties = None
         record_pat = re.compile(r"^(\d+)\s*[-–]\s*(\d+)\s*[-–]\s*(\d+)$")
         for cell in cells:
@@ -87,7 +82,6 @@ def fetch_standings(tournament_id: str) -> list[dict]:
                 wins, losses, ties = int(m.group(1)), int(m.group(2)), int(m.group(3))
                 break
 
-        # deck archetype: find the cell with a /decks/ link
         deck_id = None
         deck_name = None
         deck_sprite = None
@@ -119,85 +113,77 @@ def fetch_standings(tournament_id: str) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Snowflake
+# DuckDB
 # ---------------------------------------------------------------------------
 
 def get_conn():
-    return snowflake.connector.connect(
-        account=os.environ["SNOWFLAKE_ACCOUNT"],
-        user=os.environ["SNOWFLAKE_USER"],
-        password=os.environ["SNOWFLAKE_PASSWORD"],
-        database="PTCG_SCOUTING",
-        warehouse=os.environ.get("SNOWFLAKE_WAREHOUSE", "COMPUTE_WH"),
-        role=os.environ.get("SNOWFLAKE_ROLE", "ACCOUNTADMIN"),
-    )
+    return duckdb.connect(DUCKDB_PATH)
 
 
-def ensure_schema(cur):
-    cur.execute("CREATE SCHEMA IF NOT EXISTS PTCG_SCOUTING.RAW")
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS PTCG_SCOUTING.RAW.MAJOR_TOURNAMENTS (
-            LABS_ID        STRING  NOT NULL,
-            NAME           STRING,
-            TOURNAMENT_DATE DATE,
-            LOCATION       STRING,
-            TIER           STRING,
-            SEASON         STRING,
-            TIER_BONUS     FLOAT,
-            SEASON_WEIGHT  FLOAT,
-            _LOADED_AT     TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP(),
-            CONSTRAINT PK_MAJOR_TOURNAMENTS PRIMARY KEY (LABS_ID)
+def ensure_schema(conn):
+    conn.execute("CREATE SCHEMA IF NOT EXISTS raw")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS raw.major_tournaments (
+            labs_id         VARCHAR  PRIMARY KEY,
+            name            VARCHAR,
+            tournament_date DATE,
+            location        VARCHAR,
+            tier            VARCHAR,
+            season          VARCHAR,
+            tier_bonus      DOUBLE,
+            season_weight   DOUBLE,
+            _loaded_at      TIMESTAMPTZ DEFAULT now()
         )
     """)
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS PTCG_SCOUTING.RAW.MAJOR_STANDINGS (
-            LABS_TOURNAMENT_ID  STRING  NOT NULL,
-            PLAYER_ID           STRING,
-            PLAYER_NAME         STRING,
-            COUNTRY             STRING,
-            PLACING             INTEGER,
-            WINS                INTEGER,
-            LOSSES              INTEGER,
-            TIES                INTEGER,
-            DECK_ID             STRING,
-            DECK_NAME           STRING,
-            DECK_SPRITE         STRING,
-            _LOADED_AT          TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS raw.major_standings (
+            labs_tournament_id  VARCHAR  NOT NULL,
+            player_id           VARCHAR,
+            player_name         VARCHAR,
+            country             VARCHAR,
+            placing             INTEGER,
+            wins                INTEGER,
+            losses              INTEGER,
+            ties                INTEGER,
+            deck_id             VARCHAR,
+            deck_name           VARCHAR,
+            deck_sprite         VARCHAR,
+            _loaded_at          TIMESTAMPTZ DEFAULT now()
         )
     """)
     log.info("Major schema ready")
 
 
-def upsert_tournament(cur, t: dict):
-    cur.execute("""
-        MERGE INTO PTCG_SCOUTING.RAW.MAJOR_TOURNAMENTS tgt
-        USING (SELECT %s AS LABS_ID) src ON tgt.LABS_ID = src.LABS_ID
-        WHEN NOT MATCHED THEN INSERT
-          (LABS_ID, NAME, TOURNAMENT_DATE, LOCATION, TIER, SEASON, TIER_BONUS, SEASON_WEIGHT)
-          VALUES (%s, %s, %s::DATE, %s, %s, %s, %s, %s)
+def upsert_tournament(conn, t: dict):
+    conn.execute("""
+        INSERT INTO raw.major_tournaments
+          (labs_id, name, tournament_date, location, tier, season, tier_bonus, season_weight)
+        VALUES (?, ?, ?::DATE, ?, ?, ?, ?, ?)
+        ON CONFLICT (labs_id) DO NOTHING
     """, (
-        t["id"], t["id"], t["name"], t["date"],
+        t["id"], t["name"], t["date"],
         t["location"], t["tier"], t["season"],
         TIER_BONUS.get(t["tier"], 1.0),
         SEASON_WEIGHT.get(t["season"], 0.25),
     ))
 
 
-def load_standings(cur, tournament_id: str, standings: list[dict]):
-    # clear existing rows for this tournament before reloading
-    cur.execute("DELETE FROM PTCG_SCOUTING.RAW.MAJOR_STANDINGS WHERE LABS_TOURNAMENT_ID = %s", (tournament_id,))
-    for s in standings:
-        cur.execute("""
-            INSERT INTO PTCG_SCOUTING.RAW.MAJOR_STANDINGS
-              (LABS_TOURNAMENT_ID, PLAYER_ID, PLAYER_NAME, COUNTRY,
-               PLACING, WINS, LOSSES, TIES, DECK_ID, DECK_NAME, DECK_SPRITE)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
-        """, (
+def load_standings(conn, tournament_id: str, standings: list[dict]):
+    conn.execute("DELETE FROM raw.major_standings WHERE labs_tournament_id = ?", (tournament_id,))
+    conn.executemany("""
+        INSERT INTO raw.major_standings
+          (labs_tournament_id, player_id, player_name, country,
+           placing, wins, losses, ties, deck_id, deck_name, deck_sprite)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, [
+        (
             tournament_id,
             s["player_id"], s["player_name"], s["country"],
             s["placing"], s["wins"], s["losses"], s["ties"],
             s["deck_id"], s["deck_name"], s["deck_sprite"],
-        ))
+        )
+        for s in standings
+    ])
 
 
 # ---------------------------------------------------------------------------
@@ -237,21 +223,19 @@ def main():
         return
 
     conn = get_conn()
-    cur = conn.cursor()
     try:
-        ensure_schema(cur)
+        ensure_schema(conn)
 
         for t in tournaments:
-            upsert_tournament(cur, t)
+            upsert_tournament(conn, t)
             log.info(f"  {t['id']} {t['name']}")
             standings = fetch_standings(t["id"])
-            load_standings(cur, t["id"], standings)
+            load_standings(conn, t["id"], standings)
             log.info(f"    {len(standings)} standings loaded")
 
         conn.commit()
         log.info("Done")
     finally:
-        cur.close()
         conn.close()
 
 

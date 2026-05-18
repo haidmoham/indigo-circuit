@@ -1,8 +1,8 @@
 """
 Glicko-2 rating calculator for PTCG competitive players.
 
-Reads match history from Snowflake PTCG_SCOUTING.RAW.MATCHES + STANDINGS,
-processes chronologically, and writes ratings to PTCG_SCOUTING.RAW.GLICKO_RATINGS.
+Reads match history from DuckDB raw.matches + raw.standings,
+processes chronologically, and writes ratings to raw.glicko_ratings.
 
 Glicko-2 paper: http://www.glicko.net/glicko/glicko2.pdf
 
@@ -19,12 +19,15 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Optional
 
-import snowflake.connector
+import duckdb
 from dotenv import load_dotenv
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
+
+from pathlib import Path
+DUCKDB_PATH = os.environ.get("DUCKDB_PATH", str(Path(__file__).parent.parent / "data" / "ptcg.duckdb"))
 
 # ---------------------------------------------------------------------------
 # Glicko-2 constants
@@ -161,9 +164,9 @@ def update_player(player: Player, outcomes: list[tuple["Player", float]]) -> Pla
 # Data loading
 # ---------------------------------------------------------------------------
 
-def load_matches(cur) -> list[dict]:
+def load_matches(conn) -> list[dict]:
     """Load all matches ordered by tournament date, filtered to real head-to-head."""
-    cur.execute("""
+    cur = conn.execute("""
         SELECT
             m.tournament_id,
             t.tournament_date,
@@ -171,8 +174,8 @@ def load_matches(cur) -> list[dict]:
             m.player1,
             m.player2,
             m.winner
-        FROM PTCG_SCOUTING.RAW.MATCHES m
-        JOIN PTCG_SCOUTING.RAW.TOURNAMENTS t ON m.tournament_id = t.id
+        FROM raw.matches m
+        JOIN raw.tournaments t ON m.tournament_id = t.id
         WHERE m.player2 IS NOT NULL
           AND m.winner NOT IN ('-1', 'null')
           AND m.winner IS NOT NULL
@@ -230,20 +233,20 @@ def compute_ratings(matches: list[dict]) -> dict[str, Player]:
     return players
 
 
-def write_ratings(cur, players: dict[str, Player]):
-    cur.execute("""
-        CREATE TABLE IF NOT EXISTS PTCG_SCOUTING.RAW.GLICKO_RATINGS (
-            PLAYER_USERNAME  STRING NOT NULL,
-            RATING           FLOAT,
-            RATING_DEVIATION FLOAT,
-            VOLATILITY       FLOAT,
-            RATING_LOW       FLOAT,
-            RATING_HIGH      FLOAT,
-            GAMES_PLAYED     INTEGER,
-            _LOADED_AT       TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP()
+def write_ratings(conn, players: dict[str, Player]):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS raw.glicko_ratings (
+            player_username  VARCHAR NOT NULL,
+            rating           DOUBLE,
+            rating_deviation DOUBLE,
+            volatility       DOUBLE,
+            rating_low       DOUBLE,
+            rating_high      DOUBLE,
+            games_played     INTEGER,
+            _loaded_at       TIMESTAMPTZ DEFAULT now()
         )
     """)
-    cur.execute("TRUNCATE TABLE PTCG_SCOUTING.RAW.GLICKO_RATINGS")
+    conn.execute("TRUNCATE TABLE raw.glicko_ratings")
 
     rows = [
         (
@@ -251,20 +254,20 @@ def write_ratings(cur, players: dict[str, Player]):
             round(p.mu, 1),
             round(p.phi, 1),
             round(p.sigma, 4),
-            round(p.mu - 2 * p.phi, 1),   # ~95% confidence lower bound
-            round(p.mu + 2 * p.phi, 1),   # ~95% confidence upper bound
+            round(p.mu - 2 * p.phi, 1),
+            round(p.mu + 2 * p.phi, 1),
             p.games_played,
         )
         for p in players.values()
-        if p.games_played >= 3  # exclude players with too few games for meaningful rating
+        if p.games_played >= 3
     ]
 
-    cur.executemany(
+    conn.executemany(
         """
-        INSERT INTO PTCG_SCOUTING.RAW.GLICKO_RATINGS
-          (PLAYER_USERNAME, RATING, RATING_DEVIATION, VOLATILITY,
-           RATING_LOW, RATING_HIGH, GAMES_PLAYED)
-        VALUES (%s, %s, %s, %s, %s, %s, %s)
+        INSERT INTO raw.glicko_ratings
+          (player_username, rating, rating_deviation, volatility,
+           rating_low, rating_high, games_played)
+        VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
         rows,
     )
@@ -276,19 +279,11 @@ def main():
     parser.add_argument("--dry-run", action="store_true")
     args = parser.parse_args()
 
-    conn = snowflake.connector.connect(
-        account=os.environ["SNOWFLAKE_ACCOUNT"],
-        user=os.environ["SNOWFLAKE_USER"],
-        password=os.environ["SNOWFLAKE_PASSWORD"],
-        database="PTCG_SCOUTING",
-        warehouse=os.environ.get("SNOWFLAKE_WAREHOUSE", "COMPUTE_WH"),
-        role=os.environ.get("SNOWFLAKE_ROLE", "ACCOUNTADMIN"),
-    )
-    cur = conn.cursor()
+    conn = duckdb.connect(DUCKDB_PATH)
 
     try:
         log.info("Loading matches...")
-        matches = load_matches(cur)
+        matches = load_matches(conn)
         log.info(f"  {len(matches)} matches loaded")
 
         log.info("Computing Glicko-2 ratings...")
@@ -303,11 +298,10 @@ def main():
                 print(f"{i:<5} {p.username:<20} {p.mu:<8.0f} {p.phi:<8.0f} {p.sigma:<8.4f} {p.games_played}")
             return
 
-        write_ratings(cur, players)
+        write_ratings(conn, players)
         conn.commit()
         log.info("Done")
     finally:
-        cur.close()
         conn.close()
 
 

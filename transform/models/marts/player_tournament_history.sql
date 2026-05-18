@@ -26,4 +26,4 @@ select
     s.drop_round is not null                                as did_drop
 from standings s
 left join tournaments t on s.tournament_id = t.tournament_id
-where t.tournament_date >= dateadd('week', -52, current_date())
+where t.tournament_date >= current_date - INTERVAL '52 weeks'

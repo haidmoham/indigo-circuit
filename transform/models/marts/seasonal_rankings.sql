@@ -13,7 +13,7 @@
 with windowed as (
     select *
     from {{ ref('major_player_history') }}
-    where tournament_date >= dateadd('week', -52, current_date())
+    where tournament_date >= current_date - INTERVAL '52 weeks'
 ),
 
 -- Best archetype per player by decayed placement_score — reflects current specialization

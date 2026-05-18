@@ -8,7 +8,7 @@ with windowed as (
     -- rolling 52-week window — same as seasonal_rankings
     select *
     from {{ ref('major_player_history') }}
-    where tournament_date >= dateadd('week', -52, current_date())
+    where tournament_date >= current_date - INTERVAL '52 weeks'
       and deck_name is not null
       and normalized_placement is not null
 ),

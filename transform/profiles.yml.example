@@ -1,25 +1,9 @@
-# Copy this to ~/.dbt/profiles.yml and fill in your Snowflake credentials.
-# Values map to the same env vars in .env.example.
+# Copy this to transform/profiles.yml — values come from env vars set on Railway.
 ptcg_scouting:
   target: dev
   outputs:
     dev:
-      type: snowflake
-      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
-      user: "{{ env_var('SNOWFLAKE_USER') }}"
-      password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
-      role: "{{ env_var('SNOWFLAKE_ROLE', 'SYSADMIN') }}"
-      database: "{{ env_var('SNOWFLAKE_DATABASE', 'PTCG_SCOUTING') }}"
-      warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE', 'COMPUTE_WH') }}"
+      type: duckdb
+      path: "{{ env_var('DUCKDB_PATH', 'data/ptcg.duckdb') }}"
       schema: dbt_dev
-      threads: 4
-    prod:
-      type: snowflake
-      account: "{{ env_var('SNOWFLAKE_ACCOUNT') }}"
-      user: "{{ env_var('SNOWFLAKE_USER') }}"
-      password: "{{ env_var('SNOWFLAKE_PASSWORD') }}"
-      role: "{{ env_var('SNOWFLAKE_ROLE', 'SYSADMIN') }}"
-      database: "{{ env_var('SNOWFLAKE_DATABASE', 'PTCG_SCOUTING') }}"
-      warehouse: "{{ env_var('SNOWFLAKE_WAREHOUSE', 'COMPUTE_WH') }}"
-      schema: marts
       threads: 4

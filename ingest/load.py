@@ -1,18 +1,19 @@
 """
-Ingest Limitless TCG tournament data into Snowflake RAW schema.
+Ingest Limitless TCG tournament data into DuckDB RAW schema.
 
 Usage:
     python ingest/load.py                  # load all PTCG tournaments
     python ingest/load.py --tournament <id> # reload a single tournament
-    python ingest/load.py --dry-run        # fetch only, no writes
+    python ingest/load.py --dry-run        # fetch only, no DB writes
 """
 import argparse
 import json
 import logging
 import os
 import sys
+from pathlib import Path
 
-import snowflake.connector
+import duckdb
 from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.dirname(__file__))
@@ -22,84 +23,77 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
 
+DUCKDB_PATH = os.environ.get("DUCKDB_PATH", str(Path(__file__).parent.parent / "data" / "ptcg.duckdb"))
+
 DDL = {
     "TOURNAMENTS": """
-        CREATE TABLE IF NOT EXISTS PTCG_SCOUTING.RAW.TOURNAMENTS (
-            ID             STRING        NOT NULL,
-            GAME           STRING,
-            FORMAT         STRING,
-            NAME           STRING,
-            TOURNAMENT_DATE TIMESTAMP_TZ,
-            PLAYER_COUNT   INTEGER,
-            _LOADED_AT     TIMESTAMP_TZ  DEFAULT CURRENT_TIMESTAMP(),
-            CONSTRAINT PK_TOURNAMENTS PRIMARY KEY (ID)
+        CREATE TABLE IF NOT EXISTS raw.tournaments (
+            id              VARCHAR  PRIMARY KEY,
+            game            VARCHAR,
+            format          VARCHAR,
+            name            VARCHAR,
+            tournament_date TIMESTAMPTZ,
+            player_count    INTEGER,
+            _loaded_at      TIMESTAMPTZ DEFAULT now()
         )
     """,
     "STANDINGS": """
-        CREATE TABLE IF NOT EXISTS PTCG_SCOUTING.RAW.STANDINGS (
-            TOURNAMENT_ID   STRING   NOT NULL,
-            PLAYER_USERNAME STRING   NOT NULL,
-            PLAYER_NAME     STRING,
-            COUNTRY         STRING,
-            PLACING         INTEGER,
-            WINS            INTEGER,
-            LOSSES          INTEGER,
-            TIES            INTEGER,
-            DECK_ID         STRING,
-            DECK_NAME       STRING,
-            DECK_ICONS      VARIANT,
-            DROP_ROUND      INTEGER,
-            _LOADED_AT      TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP()
+        CREATE TABLE IF NOT EXISTS raw.standings (
+            tournament_id   VARCHAR  NOT NULL,
+            player_username VARCHAR  NOT NULL,
+            player_name     VARCHAR,
+            country         VARCHAR,
+            placing         INTEGER,
+            wins            INTEGER,
+            losses          INTEGER,
+            ties            INTEGER,
+            deck_id         VARCHAR,
+            deck_name       VARCHAR,
+            deck_icons      VARCHAR,
+            drop_round      INTEGER,
+            _loaded_at      TIMESTAMPTZ DEFAULT now()
         )
     """,
     "MATCHES": """
-        CREATE TABLE IF NOT EXISTS PTCG_SCOUTING.RAW.MATCHES (
-            TOURNAMENT_ID STRING   NOT NULL,
-            ROUND         INTEGER,
-            PHASE         INTEGER,
-            TABLE_NUMBER  INTEGER,
-            MATCH_ID      STRING,
-            PLAYER1       STRING,
-            PLAYER2       STRING,
-            WINNER        STRING,
-            _LOADED_AT    TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP()
+        CREATE TABLE IF NOT EXISTS raw.matches (
+            tournament_id VARCHAR  NOT NULL,
+            round         INTEGER,
+            phase         INTEGER,
+            table_number  INTEGER,
+            match_id      VARCHAR,
+            player1       VARCHAR,
+            player2       VARCHAR,
+            winner        VARCHAR,
+            _loaded_at    TIMESTAMPTZ DEFAULT now()
         )
     """,
     "DECKLISTS": """
-        CREATE TABLE IF NOT EXISTS PTCG_SCOUTING.RAW.DECKLISTS (
-            TOURNAMENT_ID   STRING  NOT NULL,
-            PLAYER_USERNAME STRING  NOT NULL,
-            CARD_CATEGORY   STRING,
-            CARD_NAME       STRING,
-            CARD_SET        STRING,
-            CARD_NUMBER     STRING,
-            CARD_COUNT      INTEGER,
-            _LOADED_AT      TIMESTAMP_TZ DEFAULT CURRENT_TIMESTAMP()
+        CREATE TABLE IF NOT EXISTS raw.decklists (
+            tournament_id   VARCHAR  NOT NULL,
+            player_username VARCHAR  NOT NULL,
+            card_category   VARCHAR,
+            card_name       VARCHAR,
+            card_set        VARCHAR,
+            card_number     VARCHAR,
+            card_count      INTEGER,
+            _loaded_at      TIMESTAMPTZ DEFAULT now()
         )
     """,
 }
 
 
 def get_conn():
-    return snowflake.connector.connect(
-        account=os.environ["SNOWFLAKE_ACCOUNT"],
-        user=os.environ["SNOWFLAKE_USER"],
-        password=os.environ["SNOWFLAKE_PASSWORD"],
-        database=os.environ.get("SNOWFLAKE_DATABASE", "PTCG_SCOUTING"),
-        warehouse=os.environ.get("SNOWFLAKE_WAREHOUSE", "COMPUTE_WH"),
-        role=os.environ.get("SNOWFLAKE_ROLE", "SYSADMIN"),
-    )
+    return duckdb.connect(DUCKDB_PATH)
 
 
-def ensure_schema(cur):
-    cur.execute("CREATE DATABASE IF NOT EXISTS PTCG_SCOUTING")
-    cur.execute("CREATE SCHEMA IF NOT EXISTS PTCG_SCOUTING.RAW")
+def ensure_schema(conn):
+    conn.execute("CREATE SCHEMA IF NOT EXISTS raw")
     for ddl in DDL.values():
-        cur.execute(ddl)
+        conn.execute(ddl)
     log.info("Schema ready")
 
 
-def load_tournaments(cur, client: LimitlessClient, max_pages: int = 3) -> int:
+def load_tournaments(conn, client: LimitlessClient, max_pages: int = 3) -> int:
     from datetime import datetime, timezone, timedelta
     cutoff = datetime.now(timezone.utc) - timedelta(days=3 * 365)
     total = 0
@@ -119,15 +113,13 @@ def load_tournaments(cur, client: LimitlessClient, max_pages: int = 3) -> int:
             page_rows.append(t)
 
         for t in page_rows:
-            cur.execute(
+            conn.execute(
                 """
-                MERGE INTO PTCG_SCOUTING.RAW.TOURNAMENTS tgt
-                USING (SELECT %s AS ID) src ON tgt.ID = src.ID
-                WHEN NOT MATCHED THEN
-                  INSERT (ID, GAME, FORMAT, NAME, TOURNAMENT_DATE, PLAYER_COUNT)
-                  VALUES (%s, %s, %s, %s, %s::TIMESTAMP_TZ, %s)
+                INSERT INTO raw.tournaments (id, game, format, name, tournament_date, player_count)
+                VALUES (?, ?, ?, ?, ?::TIMESTAMPTZ, ?)
+                ON CONFLICT (id) DO NOTHING
                 """,
-                (t["id"], t["id"], t.get("game"), t.get("format"), t.get("name"), t.get("date"), t.get("players")),
+                (t["id"], t.get("game"), t.get("format"), t.get("name"), t.get("date"), t.get("players")),
             )
         total += len(page_rows)
         log.info(f"  page {page}: {len(page_rows)} tournaments ({total} total)")
@@ -136,80 +128,75 @@ def load_tournaments(cur, client: LimitlessClient, max_pages: int = 3) -> int:
     return total
 
 
-def load_tournament_data(cur, client: LimitlessClient, tournament_id: str):
+def load_tournament_data(conn, client: LimitlessClient, tournament_id: str):
     standings = client.get_standings(tournament_id)
-    for s in standings:
-        record = s.get("record") or {}
-        deck = s.get("deck") or {}
-        cur.execute(
-            """
-            INSERT INTO PTCG_SCOUTING.RAW.STANDINGS
-              (TOURNAMENT_ID, PLAYER_USERNAME, PLAYER_NAME, COUNTRY,
-               PLACING, WINS, LOSSES, TIES,
-               DECK_ID, DECK_NAME, DECK_ICONS, DROP_ROUND)
-            SELECT %s, %s, %s, %s,
-                   %s, %s, %s, %s,
-                   %s, %s, PARSE_JSON(%s), %s
-            """,
+    conn.executemany(
+        """
+        INSERT INTO raw.standings
+          (tournament_id, player_username, player_name, country,
+           placing, wins, losses, ties,
+           deck_id, deck_name, deck_icons, drop_round)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        [
             (
                 tournament_id,
                 s.get("player"),
                 s.get("name"),
                 s.get("country"),
                 s.get("placing"),
-                record.get("wins"),
-                record.get("losses"),
-                record.get("ties"),
-                deck.get("id"),
-                deck.get("name"),
-                json.dumps(deck.get("icons", [])),
+                (s.get("record") or {}).get("wins"),
+                (s.get("record") or {}).get("losses"),
+                (s.get("record") or {}).get("ties"),
+                (s.get("deck") or {}).get("id"),
+                (s.get("deck") or {}).get("name"),
+                json.dumps((s.get("deck") or {}).get("icons", [])),
                 s.get("drop"),
-            ),
-        )
+            )
+            for s in standings
+        ],
+    )
 
-    # deck lists (available without API key)
+    # deck lists
+    decklist_rows = []
     for s in standings:
         username = s.get("player")
         decklist = s.get("decklist") or {}
         for category in ("pokemon", "trainer", "energy"):
             for card in decklist.get(category, []):
-                cur.execute(
-                    """
-                    INSERT INTO PTCG_SCOUTING.RAW.DECKLISTS
-                      (TOURNAMENT_ID, PLAYER_USERNAME, CARD_CATEGORY,
-                       CARD_NAME, CARD_SET, CARD_NUMBER, CARD_COUNT)
-                    VALUES (%s, %s, %s, %s, %s, %s, %s)
-                    """,
-                    (
-                        tournament_id,
-                        username,
-                        category,
-                        card.get("name"),
-                        card.get("set"),
-                        card.get("number"),
-                        card.get("count"),
-                    ),
-                )
+                decklist_rows.append((
+                    tournament_id, username, category,
+                    card.get("name"), card.get("set"),
+                    card.get("number"), card.get("count"),
+                ))
+    if decklist_rows:
+        conn.executemany(
+            """
+            INSERT INTO raw.decklists
+              (tournament_id, player_username, card_category,
+               card_name, card_set, card_number, card_count)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """,
+            decklist_rows,
+        )
 
     pairings = client.get_pairings(tournament_id)
-    for p in pairings:
-        winner = p.get("winner")
-        cur.execute(
+    if pairings:
+        conn.executemany(
             """
-            INSERT INTO PTCG_SCOUTING.RAW.MATCHES
-              (TOURNAMENT_ID, ROUND, PHASE, TABLE_NUMBER, MATCH_ID, PLAYER1, PLAYER2, WINNER)
-            VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+            INSERT INTO raw.matches
+              (tournament_id, round, phase, table_number, match_id, player1, player2, winner)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
             """,
-            (
-                tournament_id,
-                p.get("round"),
-                p.get("phase"),
-                p.get("table"),
-                p.get("match"),
-                p.get("player1"),
-                p.get("player2"),
-                str(winner) if winner is not None else None,
-            ),
+            [
+                (
+                    tournament_id,
+                    p.get("round"), p.get("phase"), p.get("table"),
+                    p.get("match"), p.get("player1"), p.get("player2"),
+                    str(p.get("winner")) if p.get("winner") is not None else None,
+                )
+                for p in pairings
+            ],
         )
 
     log.info(f"  {tournament_id}: {len(standings)} standings, {len(pairings)} pairings")
@@ -219,7 +206,7 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--tournament", help="Load a single tournament by ID")
     parser.add_argument("--dry-run", action="store_true", help="Fetch only, no DB writes")
-    parser.add_argument("--pages", type=int, default=3, help="Max pages to scan when indexing tournaments (default: 3 for incremental runs). Use --pages 999 for a full historical load.")
+    parser.add_argument("--pages", type=int, default=3, help="Max pages to scan (default 3). Use --pages 999 for full historical load.")
     args = parser.parse_args()
 
     client = LimitlessClient(api_key=os.environ.get("LIMITLESS_API_KEY"))
@@ -230,39 +217,36 @@ def main():
         return
 
     conn = get_conn()
-    cur = conn.cursor()
-
     try:
-        ensure_schema(cur)
+        ensure_schema(conn)
 
         if args.tournament:
             tournament_ids = [args.tournament]
         else:
-            n = load_tournaments(cur, client, max_pages=args.pages)
+            n = load_tournaments(conn, client, max_pages=args.pages)
             log.info(f"Tournament index: {n} loaded")
-            cur.execute("""
-                SELECT ID FROM PTCG_SCOUTING.RAW.TOURNAMENTS
-                WHERE GAME = 'PTCG'
-                  AND PLAYER_COUNT >= 64
-                  AND TOURNAMENT_DATE >= DATEADD('year', -3, CURRENT_DATE())
-                ORDER BY TOURNAMENT_DATE DESC
+            cur = conn.execute("""
+                SELECT id FROM raw.tournaments
+                WHERE game = 'PTCG'
+                  AND player_count >= 64
+                  AND tournament_date >= current_date - INTERVAL '3 years'
+                ORDER BY tournament_date DESC
             """)
             tournament_ids = [r[0] for r in cur.fetchall()]
 
         log.info(f"Loading data for {len(tournament_ids)} tournaments...")
         for tid in tournament_ids:
-            cur.execute("SELECT COUNT(*) FROM PTCG_SCOUTING.RAW.STANDINGS WHERE TOURNAMENT_ID = %s", (tid,))
+            cur = conn.execute("SELECT COUNT(*) FROM raw.standings WHERE tournament_id = ?", (tid,))
             if cur.fetchone()[0] > 0 and not args.tournament:
                 continue
             try:
-                load_tournament_data(cur, client, tid)
+                load_tournament_data(conn, client, tid)
             except Exception as e:
                 log.warning(f"  {tid}: skipped — {e}")
 
         conn.commit()
         log.info("Done")
     finally:
-        cur.close()
         conn.close()
 
 
