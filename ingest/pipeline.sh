@@ -1,29 +1,36 @@
 #!/usr/bin/env bash
-# Nightly Indigo Circuit data pipeline
-# Step 1 — Limitless Labs (official events: Regionals, ICs, Worlds)
-# Step 2 — Limitless API  (community/online events)
-# Step 3 — Glicko-2 ratings
-# Step 4 — dbt run (rebuild all DuckDB marts)
+# Indigo Circuit data pipeline
+#
+# Usage:
+#   bash ingest/pipeline.sh            # full run (all 4 steps)
+#   bash ingest/pipeline.sh --dbt-only # only regenerate dbt marts
 #
 # Requires env var: DUCKDB_PATH (default: data/ptcg.duckdb)
 set -euo pipefail
 
 log() { echo "[$(date -u '+%Y-%m-%dT%H:%M:%SZ')] $*"; }
 
-log "=== Indigo Circuit nightly pipeline start ==="
+DBT_ONLY=0
+for arg in "$@"; do
+  [[ "$arg" == "--dbt-only" ]] && DBT_ONLY=1
+done
 
-log "--- Step 1/4: Limitless Labs ingest ---"
-python3 ingest/labs.py
+log "=== Indigo Circuit pipeline start (dbt-only=$DBT_ONLY) ==="
 
-log "--- Step 2/4: Limitless API ingest ---"
-python3 ingest/load.py
-
-log "--- Step 3/4: Glicko-2 ratings ---"
-python3 ingest/glicko.py
-
-log "--- Step 4/4: dbt run ---"
 DUCKDB_PATH="${DUCKDB_PATH:-/data/ptcg.duckdb}"
 
+if [[ $DBT_ONLY -eq 0 ]]; then
+  log "--- Step 1/4: Limitless Labs ingest ---"
+  python3 ingest/labs.py
+
+  log "--- Step 2/4: Limitless API ingest ---"
+  python3 ingest/load.py
+
+  log "--- Step 3/4: Glicko-2 ratings ---"
+  python3 ingest/glicko.py
+fi
+
+log "--- dbt run ---"
 cat > transform/profiles.yml <<EOF
 ptcg_scouting:
   target: dev

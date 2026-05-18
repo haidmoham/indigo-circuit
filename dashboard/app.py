@@ -905,5 +905,58 @@ _prewarm_thread = threading.Thread(target=_prewarm, daemon=True)
 _prewarm_thread.start()
 
 
+# ---------------------------------------------------------------------------
+# Nightly pipeline scheduler (runs inside the dashboard process so it shares
+# the /data volume without needing a separate Railway cron service)
+# Fires at 06:00 UTC daily. Disable with DISABLE_SCHEDULER=1.
+# ---------------------------------------------------------------------------
+import subprocess
+
+def _run_pipeline():
+    log = app.logger
+    log.info("[pipeline] Starting nightly run")
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    steps = [
+        ["python3", "ingest/labs.py"],
+        ["python3", "ingest/load.py"],
+        ["python3", "ingest/glicko.py"],
+        ["bash",    "ingest/pipeline.sh", "--dbt-only"],
+    ]
+    for cmd in steps:
+        try:
+            result = subprocess.run(cmd, cwd=base, capture_output=True, text=True, timeout=1800)
+            if result.returncode != 0:
+                log.error(f"[pipeline] {cmd[1]} failed:\n{result.stderr[-2000:]}")
+            else:
+                log.info(f"[pipeline] {cmd[1]} done")
+        except Exception as e:
+            log.error(f"[pipeline] {cmd[1]} error: {e}")
+    # Bust cache so dashboard reflects fresh data immediately
+    bust_cache()
+    log.info("[pipeline] Complete — cache cleared")
+
+
+def _start_scheduler():
+    from datetime import datetime, timezone
+    import time as _time
+
+    def _loop():
+        while True:
+            now = datetime.now(timezone.utc)
+            # Fire at 06:00 UTC
+            if now.hour == 6 and now.minute == 0:
+                _run_pipeline()
+                _time.sleep(61)   # skip remainder of this minute
+            else:
+                _time.sleep(30)
+
+    t = threading.Thread(target=_loop, daemon=True, name="pipeline-scheduler")
+    t.start()
+
+
+if not os.environ.get("DISABLE_SCHEDULER"):
+    _start_scheduler()
+
+
 if __name__ == "__main__":
     app.run(debug=True, port=5001)
