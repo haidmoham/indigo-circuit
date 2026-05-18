@@ -2,8 +2,7 @@ version: 2
 
 sources:
   - name: ptcg_raw
-    database: PTCG_SCOUTING
-    schema: RAW
+    schema: raw
     tables:
       - name: tournaments
         description: Raw tournament metadata from the Limitless Play API.

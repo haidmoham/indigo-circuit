@@ -75,12 +75,12 @@ scored as (
         round(
             sum(wins)::float / nullif(sum(wins) + sum(losses), 0), 3
         )                                                       as win_rate,
-        min(placing)                                            as best_placing,
-        sum(case when placing <= 8  then 1 else 0 end)          as top8s,
-        sum(case when placing <= 16 then 1 else 0 end)          as top16s,
-        sum(case when placing <= 8 and tier = 'worlds'                    then 1 else 0 end) as worlds_top8s,
-        sum(case when placing <= 8 and tier = 'international'             then 1 else 0 end) as ic_top8s,
-        sum(case when placing <= 8 and tier in ('regional', 'special')    then 1 else 0 end) as regional_top8s,
+        min("placing")                                          as best_placing,
+        sum(case when "placing" <= 8  then 1 else 0 end)        as top8s,
+        sum(case when "placing" <= 16 then 1 else 0 end)        as top16s,
+        sum(case when "placing" <= 8 and tier = 'worlds'                    then 1 else 0 end) as worlds_top8s,
+        sum(case when "placing" <= 8 and tier = 'international'             then 1 else 0 end) as ic_top8s,
+        sum(case when "placing" <= 8 and tier in ('regional', 'special')    then 1 else 0 end) as regional_top8s,
         max(tournament_date)                                    as last_played,
         sum(case when tier = 'worlds'        then placement_score * exp(-1.386 * datediff('day', tournament_date, current_date()) / 365.0) else 0 end) as worlds_score,
         sum(case when tier = 'international' then placement_score * exp(-1.386 * datediff('day', tournament_date, current_date()) / 365.0) else 0 end) as ic_score,

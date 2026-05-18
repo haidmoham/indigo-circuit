@@ -10,7 +10,7 @@ select
     count(*)                                                              as times_played,
     min(tournament_date)                                                  as first_played,
     max(tournament_date)                                                  as last_played,
-    round(avg(placing), 1)                                                as avg_placement,
+    round(avg("placing"), 1)                                                as avg_placement,
     round(
         sum(wins)::float / nullif(sum(wins) + sum(losses), 0), 3
     )                                                                     as win_rate,

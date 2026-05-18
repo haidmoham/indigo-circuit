@@ -22,8 +22,8 @@ top_archetypes as (
     from windowed
     group by deck_name
     order by
-        sum(case when placing = 1  then 40 else 0 end)   -- tournament wins
-      + sum(case when placing <= 8 then  3 else 0 end)   -- top cut depth
+        sum(case when "placing" = 1  then 40 else 0 end)   -- tournament wins
+      + sum(case when "placing" <= 8 then  3 else 0 end)   -- top cut depth
       + count(*)                                          -- meta presence
     desc
     limit 8

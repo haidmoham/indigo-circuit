@@ -3,7 +3,7 @@ select
     player_id,
     player_name,
     country,
-    placing,
+    "placing",
     wins,
     losses,
     ties,
@@ -12,4 +12,4 @@ select
     deck_sprite,
     _loaded_at
 from {{ source('ptcg_raw', 'major_standings') }}
-where placing is not null
+where "placing" is not null

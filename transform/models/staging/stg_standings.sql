@@ -48,7 +48,7 @@ select
     s.player_username,
     s.player_name,
     s.country,
-    s.placing,
+    s."placing",
     coalesce(ms.computed_wins,   s.wins)            as wins,
     coalesce(ms.computed_losses, s.losses)          as losses,
     coalesce(ms.computed_ties,   s.ties)            as ties,

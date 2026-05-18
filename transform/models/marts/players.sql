@@ -20,12 +20,12 @@ select
         sum(wins)::float / nullif(sum(wins) + sum(losses), 0), 3
     )                                                                           as win_rate,
 
-    round(avg(placing), 1)                                                      as avg_placement,
-    min(placing)                                                                as best_placement,
+    round(avg("placing"), 1)                                                    as avg_placement,
+    min("placing")                                                              as best_placement,
     max(tournament_date)                                                        as last_played,
     min(tournament_date)                                                        as first_played,
 
-    count(case when placing <= 8 then 1 end)                                   as top8_finishes,
+    count(case when "placing" <= 8 then 1 end)                                 as top8_finishes,
     count(case when normalized_placement <= 0.10 then 1 end)                   as top_cut_count,
     round(
         count(case when normalized_placement <= 0.10 then 1 end)::float

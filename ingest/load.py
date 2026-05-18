@@ -43,7 +43,7 @@ DDL = {
             player_username VARCHAR  NOT NULL,
             player_name     VARCHAR,
             country         VARCHAR,
-            placing         INTEGER,
+            "placing"       INTEGER,
             wins            INTEGER,
             losses          INTEGER,
             ties            INTEGER,
@@ -134,7 +134,7 @@ def load_tournament_data(conn, client: LimitlessClient, tournament_id: str):
         """
         INSERT INTO raw.standings
           (tournament_id, player_username, player_name, country,
-           placing, wins, losses, ties,
+           "placing", wins, losses, ties,
            deck_id, deck_name, deck_icons, drop_round)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,

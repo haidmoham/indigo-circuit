@@ -141,7 +141,7 @@ def ensure_schema(conn):
             player_id           VARCHAR,
             player_name         VARCHAR,
             country             VARCHAR,
-            placing             INTEGER,
+            "placing"           INTEGER,
             wins                INTEGER,
             losses              INTEGER,
             ties                INTEGER,
@@ -173,7 +173,7 @@ def load_standings(conn, tournament_id: str, standings: list[dict]):
     conn.executemany("""
         INSERT INTO raw.major_standings
           (labs_tournament_id, player_id, player_name, country,
-           placing, wins, losses, ties, deck_id, deck_name, deck_sprite)
+           "placing", wins, losses, ties, deck_id, deck_name, deck_sprite)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     """, [
         (
