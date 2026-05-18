@@ -254,7 +254,7 @@ def search_players():
             -- most recent player_id as canonical Limitless profile link
             max_by(player_id, tournament_date) AS player_id
         FROM {MARTS}.MAJOR_PLAYER_HISTORY
-        WHERE lower(player_name) LIKE lower(%s)
+        WHERE lower(player_name) LIKE lower(?)
           AND player_id IS NOT NULL
         GROUP BY lower(player_name)
         ORDER BY count(distinct tournament_id) DESC
@@ -281,7 +281,7 @@ def player_stats(name):
         LEFT JOIN {MARTS}.MAJOR_GYM_LEADERS mgl
           ON lower(sr.player_name) = lower(mgl.player_name)
           AND mgl.is_gym_leader = TRUE
-        WHERE lower(sr.player_name) = lower(%s)
+        WHERE lower(sr.player_name) = lower(?)
         LIMIT 1
         """,
         (name,),
@@ -293,7 +293,7 @@ def player_stats(name):
         SELECT tournament_name, tournament_date, placing, player_count,
                normalized_placement, wins, losses, deck_name, tier, tournament_id
         FROM {MARTS}.MAJOR_PLAYER_HISTORY
-        WHERE lower(player_name) = lower(%s)
+        WHERE lower(player_name) = lower(?)
           AND tournament_date >= current_date - INTERVAL '52 weeks'
         ORDER BY tournament_date DESC
         """,
@@ -315,7 +315,7 @@ def player_stats(name):
                min(tournament_date)                                              AS first_played,
                max(tournament_date)                                              AS last_played
         FROM {MARTS}.MAJOR_PLAYER_HISTORY
-        WHERE lower(player_name) = lower(%s)
+        WHERE lower(player_name) = lower(?)
           AND deck_name IS NOT NULL
           AND tournament_date >= current_date - INTERVAL '52 weeks'
         GROUP BY deck_name
@@ -441,7 +441,7 @@ def tech_cards(deck_id):
                    round(avg_count_when_included, 2)     AS avg_copies,
                    is_tech_card
             FROM {MARTS}.CARD_ARCHETYPE_STATS
-            WHERE deck_id = %s
+            WHERE deck_id = ?
             ORDER BY card_category,
                      inclusion_rate DESC
             """,
@@ -456,7 +456,7 @@ def head_to_head(username, opponent):
         f"""
         SELECT matches_played, wins, losses, ties, win_rate
         FROM {MARTS}.PLAYER_VS_PLAYER
-        WHERE player_username = %s AND opponent_username = %s
+        WHERE player_username = ? AND opponent_username = ?
         """,
         (username, opponent),
     )
@@ -504,7 +504,7 @@ def _current_format_cutoff():
         prev    = active[-2] if len(active) >= 2 else current
         rows = query(
             f"SELECT 1 FROM {MARTS}.MAJOR_PLAYER_HISTORY"
-            f" WHERE tournament_date >= %s LIMIT 1",
+            f" WHERE tournament_date >= ? LIMIT 1",
             (current['start'],),
         )
         use   = current if rows else prev
@@ -532,7 +532,7 @@ def meta_stats():
         fmt_name, cutoff, until = _current_format_cutoff()
 
     cache_key = f"meta:{cutoff}"
-    until_clause = "AND tournament_date < %s" if until else ""
+    until_clause = "AND tournament_date < ?" if until else ""
     params = (cutoff, until) if until else (cutoff,)
 
     def _fetch():
@@ -557,7 +557,7 @@ def meta_stats():
                    min(placing)                                                    as best_placing
             FROM {MARTS}.MAJOR_PLAYER_HISTORY
             WHERE deck_name is not null
-              AND tournament_date >= %s
+              AND tournament_date >= ?
               {until_clause}
             GROUP BY deck_name
             ORDER BY appearances DESC
@@ -579,7 +579,7 @@ def meta_top_finishes():
         _, cutoff, until = _current_format_cutoff()
 
     cache_key = f"meta_finishes:{cutoff}"
-    until_clause = "AND tournament_date < %s" if until else ""
+    until_clause = "AND tournament_date < ?" if until else ""
     params = (cutoff, until) if until else (cutoff,)
 
     def _fetch():
@@ -590,7 +590,7 @@ def meta_top_finishes():
             FROM {MARTS}.MAJOR_PLAYER_HISTORY
             WHERE deck_name IS NOT NULL
               AND placing <= 8
-              AND tournament_date >= %s
+              AND tournament_date >= ?
               {until_clause}
             ORDER BY deck_name, placing, tournament_date DESC
             LIMIT 500
@@ -651,7 +651,7 @@ def player_card(name):
         LEFT JOIN {MARTS}.MAJOR_GYM_LEADERS mgl
           ON lower(sr.player_name) = lower(mgl.player_name)
           AND mgl.is_gym_leader = TRUE
-        WHERE lower(sr.player_name) = lower(%s)
+        WHERE lower(sr.player_name) = lower(?)
         LIMIT 1
         """,
         (name,),
