@@ -35,12 +35,17 @@ _conn: duckdb.DuckDBPyConnection | None = None
 
 
 def _connect():
+    if not os.path.exists(DUCKDB_PATH):
+        return None
     return duckdb.connect(DUCKDB_PATH, read_only=True)
 
 
 def get_conn():
     global _conn
     with _conn_lock:
+        if not os.path.exists(DUCKDB_PATH):
+            _conn = None
+            return None
         try:
             if _conn:
                 _conn.execute("SELECT 1")
@@ -52,10 +57,13 @@ def get_conn():
 
 
 def query(sql, params=None):
-    """Execute SQL and return list-of-dicts with UPPERCASE keys. Reconnects once on failure."""
+    """Execute SQL and return list-of-dicts with UPPERCASE keys.
+    Returns [] if the database hasn't been seeded yet."""
     for attempt in range(2):
         try:
             conn = get_conn()
+            if conn is None:
+                return []   # DB not seeded yet — pipeline will run shortly
             cur = conn.execute(sql, params or [])
             cols = [d[0].upper() for d in cur.description]
             return [dict(zip(cols, row)) for row in cur.fetchall()]
@@ -941,6 +949,11 @@ def _start_scheduler():
     import time as _time
 
     def _loop():
+        # Bootstrap: if DB doesn't exist yet, run the pipeline immediately
+        if not os.path.exists(DUCKDB_PATH):
+            app.logger.info("[pipeline] DB not found — running initial seed now")
+            _run_pipeline()
+
         while True:
             now = datetime.now(timezone.utc)
             # Fire at 06:00 UTC
