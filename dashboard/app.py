@@ -269,6 +269,7 @@ def search_players():
         FROM {MARTS}.MAJOR_PLAYER_HISTORY
         WHERE lower(player_name) LIKE lower(?)
           AND player_id IS NOT NULL
+          AND tournament_date >= current_date - INTERVAL '52 weeks'
         GROUP BY lower(player_name)
         ORDER BY count(distinct tournament_id) DESC
         LIMIT 20
