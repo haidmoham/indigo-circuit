@@ -1059,6 +1059,39 @@ if not os.environ.get("DISABLE_SCHEDULER"):
     _start_scheduler()
 
 
+@app.route("/admin/db-holders")
+def admin_db_holders():
+    secret = os.environ.get("ADMIN_SECRET", "")
+    if not secret or request.args.get("secret") != secret:
+        return jsonify({"error": "unauthorized"}), 403
+    holders = []
+    my_pid = os.getpid()
+    try:
+        for entry in os.listdir('/proc'):
+            if not entry.isdigit():
+                continue
+            pid = int(entry)
+            try:
+                cmdline = open(f'/proc/{pid}/cmdline').read().replace('\x00', ' ').strip()
+                for fd in os.listdir(f'/proc/{pid}/fd'):
+                    try:
+                        link = os.readlink(f'/proc/{pid}/fd/{fd}')
+                        if DUCKDB_PATH in link:
+                            holders.append({"pid": pid, "cmdline": cmdline[:120], "is_me": pid == my_pid})
+                            break
+                    except OSError:
+                        pass
+            except OSError:
+                pass
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    return jsonify({
+        "duckdb_path": DUCKDB_PATH,
+        "signal_file_exists": os.path.exists(_PIPELINE_SIGNAL),
+        "holders": holders
+    })
+
+
 @app.route("/admin/debug-player")
 def admin_debug_player():
     secret = os.environ.get("ADMIN_SECRET", "")
