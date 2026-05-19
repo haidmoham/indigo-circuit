@@ -956,7 +956,7 @@ def _run_pipeline():
     # Kill any process holding the DuckDB file open (orphans from prior deploys).
     # We scan /proc/PID/fd on Linux to find the exact holder and SIGKILL it.
     # Safe: we hold the exclusive pipeline.lock so no other pipeline is alive.
-    _kill_db_holders(DUCKDB_PATH, log)
+    _kill_db_holders(log)
     time.sleep(2)  # let the OS release the fd after SIGKILL
 
     base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
