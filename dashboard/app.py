@@ -1059,7 +1059,7 @@ def admin_debug_player():
         f"SELECT * FROM {MARTS}.PLAYERS_ENRICHED WHERE lower(player_username) = lower(?)", [username]
     )
     results["glicko_raw"] = query(
-        "SELECT * FROM raw.glicko_ratings WHERE lower(player_id) = lower(?)", [username]
+        "SELECT * FROM raw.glicko_ratings WHERE lower(player_username) = lower(?)", [username]
     )
     results["match_count"] = query(
         "SELECT COUNT(*) AS cnt FROM raw.matches WHERE lower(player1) = lower(?) OR lower(player2) = lower(?)", [username, username]
