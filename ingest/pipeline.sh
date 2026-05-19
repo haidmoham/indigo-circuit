@@ -43,7 +43,7 @@ ptcg_scouting:
 EOF
 
 cd transform
-python3 -m dbt run --profiles-dir . --target dev
+PATH="/opt/venv/bin:$PATH" dbt run --profiles-dir . --target dev
 cd ..
 
 rm -f transform/profiles.yml
