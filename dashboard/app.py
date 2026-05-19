@@ -263,7 +263,7 @@ def search_players():
             max(player_name)                AS player_name,
             max(country)                    AS country,
             count(distinct tournament_id)   AS tournaments_entered,
-            min(placing)                    AS best_placement,
+            min("placing")                    AS best_placement,
             -- most recent player_id as canonical Limitless profile link
             max_by(player_id, tournament_date) AS player_id
         FROM {MARTS}.MAJOR_PLAYER_HISTORY
@@ -303,7 +303,7 @@ def player_stats(name):
     # Major history — rolling 52-week window
     history = query(
         f"""
-        SELECT tournament_name, tournament_date, placing, player_count,
+        SELECT tournament_name, tournament_date, "placing", player_count,
                normalized_placement, wins, losses, deck_name, tier, tournament_id
         FROM {MARTS}.MAJOR_PLAYER_HISTORY
         WHERE lower(player_name) = lower(?)
@@ -322,9 +322,9 @@ def player_stats(name):
         SELECT deck_name,
                max(deck_sprite)                                                  AS deck_sprite,
                count(*)                                                          AS times_played,
-               round(avg(placing), 1)                                            AS avg_placement,
+               round(avg("placing"), 1)                                            AS avg_placement,
                round(sum(wins)::float / nullif(sum(wins) + sum(losses), 0), 3)  AS win_rate,
-               min(placing)                                                      AS best_placing,
+               min("placing")                                                      AS best_placing,
                min(tournament_date)                                              AS first_played,
                max(tournament_date)                                              AS last_played
         FROM {MARTS}.MAJOR_PLAYER_HISTORY
@@ -554,20 +554,20 @@ def meta_stats():
             SELECT deck_name,
                    max(deck_sprite)                                                as deck_sprite,
                    count(*)                                                        as appearances,
-                   round(avg(placing), 1)                                          as avg_placement,
-                   sum(case when placing <= 8 then 1 else 0 end)                   as top8s,
+                   round(avg("placing"), 1)                                          as avg_placement,
+                   sum(case when "placing" <= 8 then 1 else 0 end)                   as top8s,
                    round(
-                       sum(case when placing <= 8 then 1 else 0 end)::float
+                       sum(case when "placing" <= 8 then 1 else 0 end)::float
                        / nullif(count(*), 0), 3
                    )                                                               as top8_rate,
                    -- Day 2 proxy: top ~20 pct of field advances in a standard Swiss Regional.
                    -- player_count * 0.20, floored at 32, is a reasonable threshold.
                    round(
-                       sum(case when placing <= greatest(32, round(player_count * 0.20))
+                       sum(case when "placing" <= greatest(32, round(player_count * 0.20))
                                 then 1 else 0 end)::float
                        / nullif(count(*), 0), 3
                    )                                                               as day2_rate,
-                   min(placing)                                                    as best_placing
+                   min("placing")                                                    as best_placing
             FROM {MARTS}.MAJOR_PLAYER_HISTORY
             WHERE deck_name is not null
               AND tournament_date >= ?
@@ -598,14 +598,14 @@ def meta_top_finishes():
     def _fetch():
         rows = query(
             f"""
-            SELECT deck_name, player_name, player_id, placing,
+            SELECT deck_name, player_name, player_id, "placing",
                    tournament_name, tournament_date, tournament_id
             FROM {MARTS}.MAJOR_PLAYER_HISTORY
             WHERE deck_name IS NOT NULL
-              AND placing <= 8
+              AND "placing" <= 8
               AND tournament_date >= ?
               {until_clause}
-            ORDER BY deck_name, placing, tournament_date DESC
+            ORDER BY deck_name, "placing", tournament_date DESC
             LIMIT 500
             """,
             params,
@@ -974,14 +974,21 @@ def _run_pipeline():
                 _conn = None
 
         for cmd in steps:
-            try:
-                result = subprocess.run(cmd, cwd=base, capture_output=True, text=True, timeout=1800)
-                if result.returncode != 0:
-                    log.error(f"[pipeline] {cmd[1]} failed:\n{result.stderr[-3000:]}")
-                else:
-                    log.info(f"[pipeline] {cmd[1]} done")
-            except Exception as e:
-                log.error(f"[pipeline] {cmd[1]} error: {e}")
+            for attempt in range(6):   # retry up to 5× (75s) if DuckDB locked by orphaned process
+                try:
+                    result = subprocess.run(cmd, cwd=base, capture_output=True, text=True, timeout=1800)
+                    if result.returncode != 0:
+                        if "Could not set lock" in result.stderr and attempt < 5:
+                            log.warning(f"[pipeline] {cmd[1]} lock conflict, retrying in 15s (attempt {attempt+1})")
+                            time.sleep(15)
+                            continue
+                        log.error(f"[pipeline] {cmd[1]} failed:\n{result.stderr[-3000:]}")
+                    else:
+                        log.info(f"[pipeline] {cmd[1]} done")
+                    break
+                except Exception as e:
+                    log.error(f"[pipeline] {cmd[1]} error: {e}")
+                    break
     finally:
         _pipeline_running = False
         try:
