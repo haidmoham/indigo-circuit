@@ -910,12 +910,14 @@ import subprocess
 _PIPELINE_LOCK = str(Path(DUCKDB_PATH).parent / "pipeline.lock")
 
 
-def _kill_db_holders(db_path: str, logger) -> None:
-    """SIGKILL orphaned ingest processes that have db_path open via /proc.
-    Only kills processes whose cmdline contains an ingest script name."""
+def _kill_db_holders(logger) -> None:
+    """SIGKILL any orphaned ingest process.
+    Holding pipeline.lock guarantees no legitimate run is alive, so any
+    ingest script found in /proc is an orphan and safe to kill."""
     import signal
     _INGEST_SCRIPTS = ("ingest/labs.py", "ingest/load.py", "ingest/glicko.py")
     my_pid = os.getpid()
+    killed = False
     try:
         for entry in os.listdir('/proc'):
             if not entry.isdigit():
@@ -923,27 +925,18 @@ def _kill_db_holders(db_path: str, logger) -> None:
             pid = int(entry)
             if pid == my_pid:
                 continue
-            # Only consider processes that are running our ingest scripts
             try:
                 cmdline = open(f'/proc/{pid}/cmdline').read().replace('\x00', ' ')
-                if not any(s in cmdline for s in _INGEST_SCRIPTS):
-                    continue
-            except OSError:
-                continue
-            # Check if this process has the DB file open
-            try:
-                for fd in os.listdir(f'/proc/{pid}/fd'):
-                    try:
-                        if os.readlink(f'/proc/{pid}/fd/{fd}') == db_path:
-                            logger.info(f"[pipeline] Killing orphaned PID {pid} ({cmdline.strip()[:60]})")
-                            os.kill(pid, signal.SIGKILL)
-                            break
-                    except OSError:
-                        pass
+                if any(s in cmdline for s in _INGEST_SCRIPTS):
+                    logger.info(f"[pipeline] Killing orphaned PID {pid}: {cmdline.strip()[:80]}")
+                    os.kill(pid, signal.SIGKILL)
+                    killed = True
             except OSError:
                 pass
     except Exception as exc:
         logger.warning(f"[pipeline] _kill_db_holders error: {exc}")
+    if killed:
+        time.sleep(3)  # allow OS to release DuckDB fd after SIGKILL
 
 
 def _run_pipeline():
