@@ -32,6 +32,7 @@ DUCKDB_PATH = os.environ.get("DUCKDB_PATH", str(Path(__file__).parent.parent / "
 # ---------------------------------------------------------------------------
 _conn_lock = threading.Lock()
 _conn: duckdb.DuckDBPyConnection | None = None
+_pipeline_running = False   # when True, block all new read connections
 
 
 def _connect():
@@ -46,6 +47,8 @@ def _connect():
 
 def get_conn():
     global _conn
+    if _pipeline_running:
+        return None   # don't fight the pipeline for the write lock
     with _conn_lock:
         if not os.path.exists(DUCKDB_PATH):
             _conn = None
@@ -925,7 +928,7 @@ _prewarm_thread.start()
 import subprocess
 
 def _run_pipeline():
-    global _conn
+    global _conn, _pipeline_running
     log = app.logger
     log.info("[pipeline] Starting nightly run")
     base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -935,9 +938,9 @@ def _run_pipeline():
         ["python3", "ingest/glicko.py"],
         ["bash",    "ingest/pipeline.sh", "--dbt-only"],
     ]
-    for cmd in steps:
-        # Close the gunicorn read-only connection before each write step
-        # so DuckDB's exclusive write lock isn't blocked by our reader.
+    # Block gunicorn workers from opening read connections for the entire run
+    _pipeline_running = True
+    try:
         with _conn_lock:
             if _conn:
                 try:
@@ -945,14 +948,19 @@ def _run_pipeline():
                 except Exception:
                     pass
                 _conn = None
-        try:
-            result = subprocess.run(cmd, cwd=base, capture_output=True, text=True, timeout=1800)
-            if result.returncode != 0:
-                log.error(f"[pipeline] {cmd[1]} failed:\n{result.stderr[-3000:]}")
-            else:
-                log.info(f"[pipeline] {cmd[1]} done")
-        except Exception as e:
-            log.error(f"[pipeline] {cmd[1]} error: {e}")
+
+        for cmd in steps:
+            try:
+                result = subprocess.run(cmd, cwd=base, capture_output=True, text=True, timeout=1800)
+                if result.returncode != 0:
+                    log.error(f"[pipeline] {cmd[1]} failed:\n{result.stderr[-3000:]}")
+                else:
+                    log.info(f"[pipeline] {cmd[1]} done")
+            except Exception as e:
+                log.error(f"[pipeline] {cmd[1]} error: {e}")
+    finally:
+        _pipeline_running = False
+
     # Bust cache so dashboard reflects fresh data immediately
     bust_cache()
     log.info("[pipeline] Complete — cache cleared")
