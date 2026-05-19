@@ -1046,6 +1046,35 @@ if not os.environ.get("DISABLE_SCHEDULER"):
     _start_scheduler()
 
 
+@app.route("/admin/debug-player")
+def admin_debug_player():
+    secret = os.environ.get("ADMIN_SECRET", "")
+    if not secret or request.args.get("secret") != secret:
+        return jsonify({"error": "unauthorized"}), 403
+    username = request.args.get("username", "")
+    if not username:
+        return jsonify({"error": "username required"}), 400
+    results = {}
+    results["players_enriched"] = query(
+        f"SELECT * FROM {MARTS}.PLAYERS_ENRICHED WHERE lower(player_username) = lower(?)", [username]
+    )
+    results["glicko_raw"] = query(
+        "SELECT * FROM raw.glicko_ratings WHERE lower(player_id) = lower(?)", [username]
+    )
+    results["match_count"] = query(
+        "SELECT COUNT(*) AS cnt FROM raw.matches WHERE lower(player1) = lower(?) OR lower(player2) = lower(?)", [username, username]
+    )
+    results["tournaments"] = query(
+        "SELECT DISTINCT tournament_id FROM raw.matches WHERE lower(player1) = lower(?) OR lower(player2) = lower(?) ORDER BY tournament_id DESC LIMIT 20", [username, username]
+    )
+    results["online_rank"] = query(
+        f"""SELECT rank() OVER (ORDER BY glicko_rating_low DESC) AS rnk, player_username, glicko_rating, glicko_rd, glicko_rating_low
+            FROM {MARTS}.PLAYERS_ENRICHED WHERE glicko_rating IS NOT NULL AND tournaments_entered >= 3
+            QUALIFY lower(player_username) = lower(?)""", [username]
+    )
+    return jsonify(results)
+
+
 @app.route("/admin/run-pipeline", methods=["POST"])
 def admin_run_pipeline():
     """Manually trigger the ingest pipeline (protected by ADMIN_SECRET env var)."""
