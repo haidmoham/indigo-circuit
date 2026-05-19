@@ -973,16 +973,21 @@ def _run_pipeline():
                     pass
                 _conn = None
 
+        # Per-step timeouts: load.py can take 60+ min on first seed
+        timeouts = {"ingest/load.py": 7200, "ingest/labs.py": 1800,
+                    "ingest/glicko.py": 600, "ingest/pipeline.sh": 600}
         for cmd in steps:
+            step_timeout = timeouts.get(cmd[1], 1800)
             for attempt in range(6):   # retry up to 5× (75s) if DuckDB locked by orphaned process
                 try:
-                    result = subprocess.run(cmd, cwd=base, capture_output=True, text=True, timeout=1800)
+                    result = subprocess.run(cmd, cwd=base, capture_output=True, text=True, timeout=step_timeout)
                     if result.returncode != 0:
                         if "Could not set lock" in result.stderr and attempt < 5:
                             log.warning(f"[pipeline] {cmd[1]} lock conflict, retrying in 15s (attempt {attempt+1})")
                             time.sleep(15)
                             continue
-                        log.error(f"[pipeline] {cmd[1]} failed:\n{result.stderr[-3000:]}")
+                        out = (result.stdout + result.stderr)[-3000:]
+                        log.error(f"[pipeline] {cmd[1]} failed:\n{out}")
                     else:
                         log.info(f"[pipeline] {cmd[1]} done")
                     break
