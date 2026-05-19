@@ -34,11 +34,11 @@ DUCKDB_PATH = os.environ.get("DUCKDB_PATH", str(Path(__file__).parent.parent / "
 
 # ---------------------------------------------------------------------------
 # DuckDB query helper — open a fresh read-only connection per query.
-# No persistent connection means no cross-worker lock contention with the
-# pipeline writer. DuckDB read-only opens are fast (~1ms) so per-query
-# open/close is fine given the 5-min result cache above every endpoint.
+# A cross-process signal file (_PIPELINE_SIGNAL) blocks all reads while
+# the pipeline holds an exclusive write lock. Workers see the file and
+# return [] immediately, guaranteeing no reader/writer contention.
 # ---------------------------------------------------------------------------
-_pipeline_running = False   # intra-worker guard (belt-and-suspenders)
+_PIPELINE_SIGNAL = str(Path(DUCKDB_PATH).parent / "pipeline_writing")
 
 
 def query(sql, params=None):
@@ -46,6 +46,8 @@ def query(sql, params=None):
     Returns [] if the database or schema isn't ready yet."""
     if not os.path.exists(DUCKDB_PATH):
         return []
+    if os.path.exists(_PIPELINE_SIGNAL):
+        return []   # pipeline is writing — serve from cache or empty
     try:
         conn = duckdb.connect(DUCKDB_PATH, read_only=True)
         try:
@@ -966,7 +968,11 @@ def _run_pipeline():
         ["python3", "ingest/glicko.py"],
         ["bash",    "ingest/pipeline.sh", "--dbt-only"],
     ]
-    _pipeline_running = True  # intra-worker guard
+    # Signal ALL workers (cross-process) to stop opening DuckDB connections.
+    # Workers check this file in query() and return [] while it exists.
+    Path(_PIPELINE_SIGNAL).touch()
+    time.sleep(1)  # let any in-flight read connections finish and close
+
     try:
         # Per-step timeouts: load.py can take 60+ min on first seed
         timeouts = {"ingest/load.py": 7200, "ingest/labs.py": 1800,
@@ -990,7 +996,11 @@ def _run_pipeline():
                     log.error(f"[pipeline] {cmd[1]} error: {e}")
                     break
     finally:
-        _pipeline_running = False
+        # Remove signal so workers resume reading DuckDB
+        try:
+            Path(_PIPELINE_SIGNAL).unlink(missing_ok=True)
+        except Exception:
+            pass
         try:
             fcntl.flock(lf, fcntl.LOCK_UN)
             lf.close()
@@ -1010,6 +1020,8 @@ def _start_scheduler():
         """Return True only if the DB file exists AND dbt marts have been built."""
         if not os.path.exists(DUCKDB_PATH):
             return False
+        if os.path.exists(_PIPELINE_SIGNAL):
+            return True  # pipeline is running, assume marts exist
         try:
             conn = duckdb.connect(DUCKDB_PATH, read_only=True)
             schemas = [r[0] for r in conn.execute("SELECT schema_name FROM information_schema.schemata").fetchall()]
