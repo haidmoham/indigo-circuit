@@ -942,6 +942,32 @@ import subprocess
 _PIPELINE_LOCK = str(Path(DUCKDB_PATH).parent / "pipeline.lock")
 
 
+def _kill_db_holders(db_path: str, logger) -> None:
+    """SIGKILL every process (except us) that has db_path open via /proc."""
+    import signal
+    my_pid = os.getpid()
+    try:
+        for entry in os.listdir('/proc'):
+            if not entry.isdigit():
+                continue
+            pid = int(entry)
+            if pid == my_pid:
+                continue
+            try:
+                for fd in os.listdir(f'/proc/{pid}/fd'):
+                    try:
+                        if os.readlink(f'/proc/{pid}/fd/{fd}') == db_path:
+                            logger.info(f"[pipeline] Killing PID {pid} holding {db_path}")
+                            os.kill(pid, signal.SIGKILL)
+                            break
+                    except OSError:
+                        pass
+            except OSError:
+                pass
+    except Exception as exc:
+        logger.warning(f"[pipeline] _kill_db_holders error: {exc}")
+
+
 def _run_pipeline():
     global _conn, _pipeline_running
     log = app.logger
@@ -956,15 +982,11 @@ def _run_pipeline():
         return
 
     log.info("[pipeline] Starting nightly run")
-    # Kill any orphaned ingest processes left over from a previous deploy.
-    # Safe: we hold the exclusive file lock so no other pipeline is running.
-    for script in ("ingest/labs.py", "ingest/load.py", "ingest/glicko.py"):
-        killed = subprocess.run(
-            ["pkill", "-f", script], capture_output=True
-        )
-        if killed.returncode == 0:
-            log.info(f"[pipeline] Killed orphaned {script} process")
-    time.sleep(2)  # let OS release the DuckDB lock fd
+    # Kill any process holding the DuckDB file open (orphans from prior deploys).
+    # We scan /proc/PID/fd on Linux to find the exact holder and SIGKILL it.
+    # Safe: we hold the exclusive pipeline.lock so no other pipeline is alive.
+    _kill_db_holders(DUCKDB_PATH, log)
+    time.sleep(2)  # let the OS release the fd after SIGKILL
 
     base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     steps = [
@@ -989,11 +1011,11 @@ def _run_pipeline():
                     "ingest/glicko.py": 600, "ingest/pipeline.sh": 600}
         for cmd in steps:
             step_timeout = timeouts.get(cmd[1], 1800)
-            for attempt in range(6):   # retry up to 5× (75s) if DuckDB locked by orphaned process
+            for attempt in range(40):  # retry up to 39× (10 min) if DuckDB locked by orphaned process
                 try:
                     result = subprocess.run(cmd, cwd=base, capture_output=True, text=True, timeout=step_timeout)
                     if result.returncode != 0:
-                        if "Could not set lock" in result.stderr and attempt < 5:
+                        if "Could not set lock" in result.stderr and attempt < 39:
                             log.warning(f"[pipeline] {cmd[1]} lock conflict, retrying in 15s (attempt {attempt+1})")
                             time.sleep(15)
                             continue
