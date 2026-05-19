@@ -33,63 +33,31 @@ DUCKDB_PATH = os.environ.get("DUCKDB_PATH", str(Path(__file__).parent.parent / "
 
 
 # ---------------------------------------------------------------------------
-# Persistent DuckDB connection (read-only, one per worker process)
+# DuckDB query helper — open a fresh read-only connection per query.
+# No persistent connection means no cross-worker lock contention with the
+# pipeline writer. DuckDB read-only opens are fast (~1ms) so per-query
+# open/close is fine given the 5-min result cache above every endpoint.
 # ---------------------------------------------------------------------------
-_conn_lock = threading.Lock()
-_conn: duckdb.DuckDBPyConnection | None = None
-_pipeline_running = False   # when True, block all new read connections
-
-
-def _connect():
-    if not os.path.exists(DUCKDB_PATH):
-        return None
-    try:
-        return duckdb.connect(DUCKDB_PATH, read_only=True)
-    except duckdb.IOException:
-        # Pipeline is currently writing — treat as "not ready yet"
-        return None
-
-
-def get_conn():
-    global _conn
-    if _pipeline_running:
-        return None   # don't fight the pipeline for the write lock
-    with _conn_lock:
-        if not os.path.exists(DUCKDB_PATH):
-            _conn = None
-            return None
-        try:
-            if _conn:
-                _conn.execute("SELECT 1")
-                return _conn
-        except Exception:
-            pass
-        _conn = _connect()
-        return _conn
+_pipeline_running = False   # intra-worker guard (belt-and-suspenders)
 
 
 def query(sql, params=None):
     """Execute SQL and return list-of-dicts with UPPERCASE keys.
     Returns [] if the database or schema isn't ready yet."""
-    for attempt in range(2):
+    if not os.path.exists(DUCKDB_PATH):
+        return []
+    try:
+        conn = duckdb.connect(DUCKDB_PATH, read_only=True)
         try:
-            conn = get_conn()
-            if conn is None:
-                return []   # DB not seeded yet — pipeline will run shortly
             cur = conn.execute(sql, params or [])
             cols = [d[0].upper() for d in cur.description]
             return [dict(zip(cols, row)) for row in cur.fetchall()]
-        except (duckdb.CatalogException, duckdb.IOException):
-            # Schema/table not ready (pipeline still seeding) — return empty
-            with _conn_lock:
-                global _conn
-                _conn = None
-            return []
-        except Exception:
-            with _conn_lock:
-                _conn = None
-            if attempt > 0:
-                raise
+        finally:
+            conn.close()
+    except (duckdb.CatalogException, duckdb.IOException):
+        return []
+    except Exception:
+        raise
 
 
 # ---------------------------------------------------------------------------
@@ -943,8 +911,10 @@ _PIPELINE_LOCK = str(Path(DUCKDB_PATH).parent / "pipeline.lock")
 
 
 def _kill_db_holders(db_path: str, logger) -> None:
-    """SIGKILL every process (except us) that has db_path open via /proc."""
+    """SIGKILL orphaned ingest processes that have db_path open via /proc.
+    Only kills processes whose cmdline contains an ingest script name."""
     import signal
+    _INGEST_SCRIPTS = ("ingest/labs.py", "ingest/load.py", "ingest/glicko.py")
     my_pid = os.getpid()
     try:
         for entry in os.listdir('/proc'):
@@ -953,11 +923,19 @@ def _kill_db_holders(db_path: str, logger) -> None:
             pid = int(entry)
             if pid == my_pid:
                 continue
+            # Only consider processes that are running our ingest scripts
+            try:
+                cmdline = open(f'/proc/{pid}/cmdline').read().replace('\x00', ' ')
+                if not any(s in cmdline for s in _INGEST_SCRIPTS):
+                    continue
+            except OSError:
+                continue
+            # Check if this process has the DB file open
             try:
                 for fd in os.listdir(f'/proc/{pid}/fd'):
                     try:
                         if os.readlink(f'/proc/{pid}/fd/{fd}') == db_path:
-                            logger.info(f"[pipeline] Killing PID {pid} holding {db_path}")
+                            logger.info(f"[pipeline] Killing orphaned PID {pid} ({cmdline.strip()[:60]})")
                             os.kill(pid, signal.SIGKILL)
                             break
                     except OSError:
@@ -969,7 +947,7 @@ def _kill_db_holders(db_path: str, logger) -> None:
 
 
 def _run_pipeline():
-    global _conn, _pipeline_running
+    global _pipeline_running
     log = app.logger
 
     # File-based mutex: only one gunicorn worker runs the pipeline at a time.
@@ -995,17 +973,8 @@ def _run_pipeline():
         ["python3", "ingest/glicko.py"],
         ["bash",    "ingest/pipeline.sh", "--dbt-only"],
     ]
-    # Block gunicorn workers from opening read connections for the entire run
-    _pipeline_running = True
+    _pipeline_running = True  # intra-worker guard
     try:
-        with _conn_lock:
-            if _conn:
-                try:
-                    _conn.close()
-                except Exception:
-                    pass
-                _conn = None
-
         # Per-step timeouts: load.py can take 60+ min on first seed
         timeouts = {"ingest/load.py": 7200, "ingest/labs.py": 1800,
                     "ingest/glicko.py": 600, "ingest/pipeline.sh": 600}
