@@ -956,6 +956,16 @@ def _run_pipeline():
         return
 
     log.info("[pipeline] Starting nightly run")
+    # Kill any orphaned ingest processes left over from a previous deploy.
+    # Safe: we hold the exclusive file lock so no other pipeline is running.
+    for script in ("ingest/labs.py", "ingest/load.py", "ingest/glicko.py"):
+        killed = subprocess.run(
+            ["pkill", "-f", script], capture_output=True
+        )
+        if killed.returncode == 0:
+            log.info(f"[pipeline] Killed orphaned {script} process")
+    time.sleep(2)  # let OS release the DuckDB lock fd
+
     base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     steps = [
         ["python3", "ingest/labs.py"],
