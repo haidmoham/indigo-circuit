@@ -70,7 +70,7 @@ def get_conn():
 
 def query(sql, params=None):
     """Execute SQL and return list-of-dicts with UPPERCASE keys.
-    Returns [] if the database hasn't been seeded yet."""
+    Returns [] if the database or schema isn't ready yet."""
     for attempt in range(2):
         try:
             conn = get_conn()
@@ -79,9 +79,14 @@ def query(sql, params=None):
             cur = conn.execute(sql, params or [])
             cols = [d[0].upper() for d in cur.description]
             return [dict(zip(cols, row)) for row in cur.fetchall()]
-        except Exception:
+        except (duckdb.CatalogException, duckdb.IOException):
+            # Schema/table not ready (pipeline still seeding) — return empty
             with _conn_lock:
                 global _conn
+                _conn = None
+            return []
+        except Exception:
+            with _conn_lock:
                 _conn = None
             if attempt > 0:
                 raise
