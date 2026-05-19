@@ -925,11 +925,25 @@ _prewarm_thread.start()
 # the /data volume without needing a separate Railway cron service)
 # Fires at 06:00 UTC daily. Disable with DISABLE_SCHEDULER=1.
 # ---------------------------------------------------------------------------
+import fcntl
 import subprocess
+
+_PIPELINE_LOCK = str(Path(DUCKDB_PATH).parent / "pipeline.lock")
+
 
 def _run_pipeline():
     global _conn, _pipeline_running
     log = app.logger
+
+    # File-based mutex: only one gunicorn worker runs the pipeline at a time.
+    # (Each worker spawns its own scheduler thread; without this they'd race.)
+    try:
+        lf = open(_PIPELINE_LOCK, "w")
+        fcntl.flock(lf, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (BlockingIOError, OSError):
+        log.info("[pipeline] Another worker holds the lock — skipping this run")
+        return
+
     log.info("[pipeline] Starting nightly run")
     base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     steps = [
@@ -960,6 +974,11 @@ def _run_pipeline():
                 log.error(f"[pipeline] {cmd[1]} error: {e}")
     finally:
         _pipeline_running = False
+        try:
+            fcntl.flock(lf, fcntl.LOCK_UN)
+            lf.close()
+        except Exception:
+            pass
 
     # Bust cache so dashboard reflects fresh data immediately
     bust_cache()
