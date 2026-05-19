@@ -183,7 +183,7 @@ async function load() {
       <div style="display:flex;justify-content:space-between;font-size:0.82rem;
                   padding-top:0.75rem;border-top:1px solid rgba(255,255,255,0.05)">
         <span style="font-weight:800;color:${D_RED}">${Math.round(rating)} <span style="font-size:0.65rem;color:var(--muted);font-weight:600">±${Math.round(rd)}</span></span>
-        <span style="font-weight:700;color:var(--green)">${wr != null ? wr + '%' : '—'} WR</span>
+        <span style="font-weight:700;color:var(--green)">${wr != null ? Number(wr).toFixed(2) + '%' : '—'} WR</span>
         <span style="font-weight:700;color:${D_FIRE}">${tcPct != null ? tcPct + '%' : '—'} TC</span>
       </div>
     </div>`;
@@ -230,7 +230,7 @@ async function load() {
       </div>
       <div style="display:flex;gap:1rem;font-size:0.73rem;color:var(--muted);font-weight:600;
                   margin-top:0.6rem;padding-top:0.5rem;border-top:1px solid rgba(255,255,255,0.05)">
-        <span style="color:var(--green)">${wr != null ? wr + '%' : '—'} WR</span>
+        <span style="color:var(--green)">${wr != null ? Number(wr).toFixed(2) + '%' : '—'}% WR</span>
         ${country ? `<span>${countryDisplay(country)}</span>` : ''}
       </div>
     </div>`;

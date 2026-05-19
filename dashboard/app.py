@@ -1046,5 +1046,16 @@ if not os.environ.get("DISABLE_SCHEDULER"):
     _start_scheduler()
 
 
+@app.route("/admin/run-pipeline", methods=["POST"])
+def admin_run_pipeline():
+    """Manually trigger the ingest pipeline (protected by ADMIN_SECRET env var)."""
+    secret = os.environ.get("ADMIN_SECRET", "")
+    if not secret or request.headers.get("X-Admin-Secret") != secret:
+        return jsonify({"error": "unauthorized"}), 403
+    t = threading.Thread(target=_run_pipeline, daemon=True, name="pipeline-manual")
+    t.start()
+    return jsonify({"status": "started"}), 202
+
+
 if __name__ == "__main__":
     app.run(debug=True, port=5001)
