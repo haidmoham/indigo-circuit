@@ -143,11 +143,11 @@ async function load() {
   // ── Stats strip ─────────────────────────────────────────────────────────
   const totalMajors = history.length;
   const winRate  = r?.WIN_RATE_PCT != null
-    ? r.WIN_RATE_PCT.toFixed(1) + '%'
+    ? Number(r.WIN_RATE_PCT).toFixed(2) + '%'
     : (() => {
         const wins = history.reduce((s,h) => s + (h.WINS||0), 0);
         const total = wins + history.reduce((s,h) => s + (h.LOSSES||0), 0);
-        return total ? (wins/total*100).toFixed(1) + '%' : '—';
+        return total ? (wins/total*100).toFixed(2) + '%' : '—';
       })();
   const top8s = r?.TOP8S ?? history.filter(h => (h.PLACING||99) <= 8).length;
 

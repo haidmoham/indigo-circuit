@@ -130,7 +130,7 @@ async function load() {
           <!-- Stats -->
           <div style="display:flex;gap:2rem;flex-wrap:wrap;align-items:center">
             ${statBox('ATP Score',   champ.ATP_SCORE != null ? champ.ATP_SCORE.toFixed(1) : '—', theme.c)}
-            ${statBox('Win Rate',    champ.WIN_RATE_PCT + '%',    'var(--green)')}
+            ${statBox('Win Rate',    champ.WIN_RATE_PCT != null ? Number(champ.WIN_RATE_PCT).toFixed(2) + '%' : '—',    'var(--green)')}
             ${statBox('Best Finish', '#' + champ.BEST_PLACING,    'var(--electric)')}
           </div>
         </div>

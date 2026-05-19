@@ -147,10 +147,10 @@ async function load() {
       </td>
       <td style="padding:0.65rem 0.75rem;text-align:right;color:var(--muted);font-weight:700">${events}</td>
       <td style="padding:0.65rem 0.75rem;text-align:right;font-weight:700;color:var(--green)">
-        ${wr != null ? wr + '%' : '—'}
+        ${wr != null ? Number(wr).toFixed(2) + '%' : '—'}
       </td>
       <td style="padding:0.65rem 0.75rem;text-align:right;font-weight:700;color:var(--electric)">
-        ${tcPct != null ? tcPct + '%' : '—'}
+        ${tcPct != null ? Number(tcPct).toFixed(2) + '%' : '—'}
       </td>
       <td style="padding:0.65rem 0.75rem;text-align:right;font-weight:700;color:var(--muted)">
         ${best != null ? '#' + best : '—'}
