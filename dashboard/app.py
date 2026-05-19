@@ -17,10 +17,15 @@ from flask import Flask, render_template, request, jsonify, redirect
 from flask_compress import Compress
 from dotenv import load_dotenv
 
+import logging
 load_dotenv()
 
 app = Flask(__name__)
 Compress(app)   # gzip all JSON/HTML responses >500 bytes automatically
+
+# Ensure pipeline INFO logs are visible in Railway (gunicorn suppresses them by default)
+logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+app.logger.setLevel(logging.INFO)
 
 # Schema where dbt marts live (override with env var in production)
 MARTS = os.environ.get("DBT_MARTS_SCHEMA", "dbt_dev_marts")
