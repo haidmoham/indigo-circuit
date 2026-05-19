@@ -912,10 +912,45 @@ import subprocess
 _PIPELINE_LOCK = str(Path(DUCKDB_PATH).parent / "pipeline.lock")
 
 
+def _pid_has_duckdb_open(pid: int) -> bool:
+    """Return True if any fd of pid points at the DuckDB file."""
+    try:
+        for fd in os.listdir(f'/proc/{pid}/fd'):
+            try:
+                if DUCKDB_PATH in os.readlink(f'/proc/{pid}/fd/{fd}'):
+                    return True
+            except OSError:
+                pass
+    except OSError:
+        pass
+    return False
+
+
+def _close_own_duckdb_fds(logger) -> None:
+    """Close any DuckDB file descriptors held by the current process so
+    labs.py can acquire the write lock without inheriting them."""
+    my_pid = os.getpid()
+    try:
+        for fd_name in os.listdir(f'/proc/{my_pid}/fd'):
+            try:
+                if DUCKDB_PATH in os.readlink(f'/proc/{my_pid}/fd/{fd_name}'):
+                    try:
+                        os.close(int(fd_name))
+                        logger.info(f"[pipeline] Closed own DuckDB fd {fd_name}")
+                    except OSError:
+                        pass
+            except OSError:
+                pass
+    except Exception as exc:
+        logger.warning(f"[pipeline] _close_own_duckdb_fds error: {exc}")
+
+
 def _kill_db_holders(logger) -> None:
-    """SIGKILL any orphaned ingest process.
-    Holding pipeline.lock guarantees no legitimate run is alive, so any
-    ingest script found in /proc is an orphan and safe to kill."""
+    """Kill anything blocking the DuckDB write lock:
+    - SIGKILL orphaned ingest scripts (safe: we hold pipeline.lock)
+    - SIGTERM the sibling gunicorn worker if it has DuckDB open
+      (gunicorn restarts it immediately, fresh with no DB fd)
+    """
     import signal
     _INGEST_SCRIPTS = ("ingest/labs.py", "ingest/load.py", "ingest/glicko.py")
     my_pid = os.getpid()
@@ -930,15 +965,19 @@ def _kill_db_holders(logger) -> None:
             try:
                 cmdline = open(f'/proc/{pid}/cmdline').read().replace('\x00', ' ')
                 if any(s in cmdline for s in _INGEST_SCRIPTS):
-                    logger.info(f"[pipeline] Killing orphaned PID {pid}: {cmdline.strip()[:80]}")
+                    logger.info(f"[pipeline] Killing orphaned ingest PID {pid}: {cmdline.strip()[:80]}")
                     os.kill(pid, signal.SIGKILL)
+                    killed = True
+                elif 'gunicorn' in cmdline and _pid_has_duckdb_open(pid):
+                    logger.info(f"[pipeline] Recycling gunicorn worker PID {pid} to release DuckDB lock")
+                    os.kill(pid, signal.SIGTERM)
                     killed = True
             except OSError:
                 pass
     except Exception as exc:
         logger.warning(f"[pipeline] _kill_db_holders error: {exc}")
     if killed:
-        time.sleep(3)  # allow OS to release DuckDB fd after SIGKILL
+        time.sleep(5)  # allow gunicorn to restart recycled worker and OS to release fds
 
 
 def _run_pipeline():
@@ -955,11 +994,14 @@ def _run_pipeline():
         return
 
     log.info("[pipeline] Starting nightly run")
-    # Kill any process holding the DuckDB file open (orphans from prior deploys).
-    # We scan /proc/PID/fd on Linux to find the exact holder and SIGKILL it.
-    # Safe: we hold the exclusive pipeline.lock so no other pipeline is alive.
+    # 1. Signal ALL workers to stop opening DuckDB connections immediately.
+    Path(_PIPELINE_SIGNAL).touch()
+    # 2. Kill any orphaned ingest scripts AND recycle the sibling gunicorn
+    #    worker that holds a DuckDB fd (gunicorn restarts it clean in ~1s).
     _kill_db_holders(log)
-    time.sleep(2)  # let the OS release the fd after SIGKILL
+    # 3. Close any DuckDB fds held by THIS process so labs.py can write.
+    _close_own_duckdb_fds(log)
+    time.sleep(2)  # let gunicorn restart the recycled worker and OS release fds
 
     base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     steps = [
@@ -968,10 +1010,6 @@ def _run_pipeline():
         ["python3", "ingest/glicko.py"],
         ["bash",    "ingest/pipeline.sh", "--dbt-only"],
     ]
-    # Signal ALL workers (cross-process) to stop opening DuckDB connections.
-    # Workers check this file in query() and return [] while it exists.
-    Path(_PIPELINE_SIGNAL).touch()
-    time.sleep(1)  # let any in-flight read connections finish and close
 
     try:
         # Per-step timeouts: load.py can take 60+ min on first seed
