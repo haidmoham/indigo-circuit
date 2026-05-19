@@ -43,6 +43,7 @@ ptcg_scouting:
 EOF
 
 cd transform
+PATH="/opt/venv/bin:$PATH" dbt deps --profiles-dir . --target dev
 PATH="/opt/venv/bin:$PATH" dbt run --profiles-dir . --target dev
 cd ..
 
