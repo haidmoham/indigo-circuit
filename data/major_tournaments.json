@@ -1,4 +1,6 @@
 [
+  {"id": "0065", "name": "Regional Championship Campinas",         "date": "2026-05-16", "location": "BR", "tier": "regional",       "season": "2026"},
+  {"id": "0064", "name": "Regional Championship Utrecht",          "date": "2026-05-16", "location": "NL", "tier": "regional",       "season": "2026"},
   {"id": "0063", "name": "Regional Championship Los Angeles",      "date": "2026-05-08", "location": "US", "tier": "regional",       "season": "2026"},
   {"id": "0062", "name": "Regional Championship Prague",           "date": "2026-04-25", "location": "CZ", "tier": "regional",       "season": "2026"},
   {"id": "0061", "name": "Regional Championship Querétaro",        "date": "2026-04-04", "location": "MX", "tier": "regional",       "season": "2026"},
