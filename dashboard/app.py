@@ -962,10 +962,22 @@ def _start_scheduler():
     from datetime import datetime, timezone
     import time as _time
 
-    def _loop():
-        # Bootstrap: if DB doesn't exist yet, run the pipeline immediately
+    def _marts_ready():
+        """Return True only if the DB file exists AND dbt marts have been built."""
         if not os.path.exists(DUCKDB_PATH):
-            app.logger.info("[pipeline] DB not found — running initial seed now")
+            return False
+        try:
+            conn = duckdb.connect(DUCKDB_PATH, read_only=True)
+            schemas = [r[0] for r in conn.execute("SELECT schema_name FROM information_schema.schemata").fetchall()]
+            conn.close()
+            return "dbt_dev_marts" in schemas
+        except Exception:
+            return False
+
+    def _loop():
+        # Bootstrap: run pipeline if DB is missing OR marts haven't been built yet
+        if not _marts_ready():
+            app.logger.info("[pipeline] Marts not ready — running initial seed now")
             _run_pipeline()
 
         while True:
