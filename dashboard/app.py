@@ -1049,6 +1049,12 @@ def _start_scheduler():
     t.start()
 
 
+# Clean up any stale signal file left by a previously interrupted pipeline.
+try:
+    Path(_PIPELINE_SIGNAL).unlink(missing_ok=True)
+except Exception:
+    pass
+
 if not os.environ.get("DISABLE_SCHEDULER"):
     _start_scheduler()
 
