@@ -5,12 +5,13 @@ Labs covers official Play Pokémon events (Regionals, ICs, Worlds) sourced
 from RK9. Tournaments are curated in data/major_tournaments.json.
 
 Usage:
-    python ingest/labs.py                         # load all curated tournaments
-    python ingest/labs.py --season 2026           # load one season only
-    python ingest/labs.py --id 0063               # reload a single tournament
-    python ingest/labs.py --dry-run               # fetch only, print sample
-    python ingest/labs.py --with-decklists        # also scrape match+decklist data (top 64)
-    python ingest/labs.py --with-decklists --top-n 128  # scrape top 128 per tournament
+    python ingest/labs.py                              # load all curated tournaments
+    python ingest/labs.py --season 2026                # load one season only
+    python ingest/labs.py --id 0063                    # reload a single tournament
+    python ingest/labs.py --dry-run                    # fetch only, print sample
+    python ingest/labs.py --with-decklists             # scrape match+decklist data (top 64)
+    python ingest/labs.py --with-decklists --top-n 128 # scrape top 128 per tournament
+    python ingest/labs.py --with-decklists --all-players  # scrape full field (all standings)
     python ingest/labs.py --id 0063 --with-decklists --force  # re-scrape even if cached
 """
 import argparse
@@ -491,6 +492,9 @@ def main():
                         help="Also scrape round-by-round matches and full decklists for top-N players")
     parser.add_argument("--top-n", type=int, default=64,
                         help="How many top finishers to scrape per tournament (default 64)")
+    parser.add_argument("--all-players", action="store_true",
+                        help="Scrape the full field (all standings rows with a player_id). "
+                             "Supersedes --top-n. Incremental: already-cached players are skipped.")
     parser.add_argument("--force", action="store_true",
                         help="Re-scrape even if match/decklist data already exists")
     args = parser.parse_args()
@@ -529,20 +533,25 @@ def main():
             if not args.with_decklists:
                 continue
 
-            # Scrape top-N players' matches + decklists
-            top_players = [
-                s for s in standings
-                if s["player_id"] and s["placing"] and s["placing"] <= args.top_n
-            ]
+            # Scrape players' matches + decklists
+            if args.all_players:
+                candidate_players = [s for s in standings if s["player_id"]]
+                scope_label = "full field"
+            else:
+                candidate_players = [
+                    s for s in standings
+                    if s["player_id"] and s["placing"] and s["placing"] <= args.top_n
+                ]
+                scope_label = f"top {args.top_n}"
 
             already = set() if args.force else already_scraped_players(conn, t["id"])
-            to_scrape = [p for p in top_players if p["player_id"] not in already]
+            to_scrape = [p for p in candidate_players if p["player_id"] not in already]
 
             if not to_scrape:
-                log.info(f"    top-{args.top_n} already scraped, skipping")
+                log.info(f"    {scope_label} already scraped ({len(already)} cached), skipping")
                 continue
 
-            log.info(f"    scraping {len(to_scrape)} players (top {args.top_n}, {len(already)} cached)...")
+            log.info(f"    scraping {len(to_scrape)} players ({scope_label}, {len(already)} cached)...")
 
             dl_count = match_count = 0
             for p in to_scrape:

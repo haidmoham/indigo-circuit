@@ -1369,5 +1369,82 @@ def admin_run_pipeline():
     return jsonify({"status": "started"}), 202
 
 
+def _run_majors_scrape():
+    """
+    Scrape full-field decklists + matches for all majors, then rebuild dbt marts.
+    Incremental: already-cached players are skipped automatically.
+    Expected runtime: 4-8 hours for 65 tournaments × full field.
+    """
+    log = app.logger
+    try:
+        lf = open(_PIPELINE_LOCK, "w")
+        fcntl.flock(lf, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except (BlockingIOError, OSError):
+        log.info("[majors-scrape] Pipeline lock held — skipping")
+        return
+
+    log.info("[majors-scrape] Starting full-field decklist scrape")
+    Path(_PIPELINE_SIGNAL).touch()
+    _kill_db_holders(log)
+    _close_own_duckdb_fds(log)
+    time.sleep(2)
+
+    base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    steps = [
+        (["python3", "ingest/labs.py", "--with-decklists", "--all-players"], 28800),  # 8h
+        (["bash", "ingest/pipeline.sh", "--dbt-only"], 600),
+    ]
+
+    try:
+        for cmd, step_timeout in steps:
+            for attempt in range(40):
+                try:
+                    result = subprocess.run(cmd, cwd=base, capture_output=True, text=True, timeout=step_timeout)
+                    if result.returncode != 0:
+                        if "Could not set lock" in result.stderr and attempt < 39:
+                            log.warning(f"[majors-scrape] {cmd[1]} lock conflict, retrying in 15s")
+                            time.sleep(15)
+                            continue
+                        out = (result.stdout + result.stderr)[-3000:]
+                        log.error(f"[majors-scrape] {cmd[1]} failed:\n{out}")
+                    else:
+                        log.info(f"[majors-scrape] {cmd[1]} done")
+                    break
+                except subprocess.TimeoutExpired:
+                    log.error(f"[majors-scrape] {cmd[1]} timed out after {step_timeout}s")
+                    break
+                except Exception as e:
+                    log.error(f"[majors-scrape] {cmd[1]} error: {e}")
+                    break
+    finally:
+        try:
+            Path(_PIPELINE_SIGNAL).unlink(missing_ok=True)
+        except Exception:
+            pass
+        try:
+            fcntl.flock(lf, fcntl.LOCK_UN)
+            lf.close()
+        except Exception:
+            pass
+
+    bust_cache()
+    log.info("[majors-scrape] Complete — cache cleared")
+
+
+@app.route("/admin/run-majors-scrape", methods=["POST"])
+def admin_run_majors_scrape():
+    """
+    Kick off full-field majors decklist scrape in the background.
+    Incremental: already-scraped players are skipped.
+    Protected by X-Admin-Secret header.
+    """
+    secret = os.environ.get("ADMIN_SECRET", "")
+    if not secret or request.headers.get("X-Admin-Secret") != secret:
+        return jsonify({"error": "unauthorized"}), 403
+    t = threading.Thread(target=_run_majors_scrape, daemon=True, name="majors-scrape")
+    t.start()
+    return jsonify({"status": "started", "note": "full-field scrape running; check Railway logs"}), 202
+
+
 if __name__ == "__main__":
     app.run(debug=True, port=5001)
