@@ -408,6 +408,14 @@ def compute_list_ev(raw_list: str, conn,
     card_evs.sort(key=lambda c: (c.is_core, -abs(c.meta_ev)))
 
     # 8. Serialise
+    opponent_archetypes = sorted(
+        [
+            {"id": opp, "name": deck_names.get(opp, opp), "share": round(share, 4)}
+            for opp, share in meta_shares.items()
+        ],
+        key=lambda x: -x["share"],
+    )
+
     return {
         "archetype_id":   archetype_id,
         "archetype_name": arch_name,
@@ -417,6 +425,7 @@ def compute_list_ev(raw_list: str, conn,
         "list_ev_std":    round(total_var ** 0.5, 4),
         "meta_coverage":  round(scored_meta_weight, 3),
         "unscored_cards": unscored,
+        "opponent_archetypes": opponent_archetypes,
         "cards": [
             {
                 "card_name":      c.card_name,

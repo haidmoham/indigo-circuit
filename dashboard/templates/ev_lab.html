@@ -95,7 +95,7 @@
 
   .card-row {
     display: grid;
-    grid-template-columns: 160px 1fr 90px 90px 90px;
+    grid-template-columns: 160px 1fr 90px 90px 90px 18px;
     gap: .5rem; align-items: center;
     padding: .55rem .75rem; border-radius: 8px; margin-bottom: 2px;
     cursor: pointer; transition: background .15s;
@@ -103,6 +103,8 @@
   }
   .card-row:hover { background: rgba(255,255,255,.04); }
   .card-row.expanded { background: rgba(139,92,246,.07); border-radius: 8px 8px 0 0; }
+  .col-caret { color: var(--muted); font-size: .65rem; opacity: .5; text-align: right; transition: transform .15s; }
+  .card-row.expanded .col-caret { transform: rotate(180deg); opacity: .9; }
 
   .card-row .col-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .col-bar  { position: relative; height: 6px; background: rgba(255,255,255,.07); border-radius: 3px; }
@@ -127,6 +129,37 @@
     padding: .75rem 1rem 1rem; margin-bottom: 2px;
   }
   .matchup-panel.open { display: block; }
+
+  /* ── Archetype breakdown section ─────────────────────────────────────────── */
+  .arch-block { margin-bottom: 4px; }
+  .arch-block-header {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: .5rem .75rem; border-radius: 8px; cursor: pointer;
+    background: rgba(255,255,255,.03); transition: background .15s;
+    font-size: .82rem;
+  }
+  .arch-block-header:hover { background: rgba(255,255,255,.06); }
+  .arch-block-header.open  { background: rgba(139,92,246,.07); border-radius: 8px 8px 0 0; }
+  .arch-name  { font-weight: 600; }
+  .arch-share { font-size: .72rem; color: var(--muted); }
+  .arch-caret { font-size: .65rem; color: var(--muted); opacity: .5; transition: transform .15s; }
+  .arch-block-header.open .arch-caret { transform: rotate(180deg); opacity: .9; }
+  .arch-table-wrap {
+    display: none; background: rgba(0,0,0,.25);
+    border: 1px solid rgba(255,255,255,.07); border-top: none;
+    border-radius: 0 0 8px 8px; overflow: hidden; margin-bottom: 2px;
+  }
+  .arch-table-wrap.open { display: block; }
+  .arch-table { width: 100%; border-collapse: collapse; font-size: .8rem; }
+  .arch-table th {
+    padding: .3rem .75rem; font-size: .62rem; font-weight: 800;
+    letter-spacing: .09em; text-transform: uppercase; color: var(--muted);
+    text-align: left;
+  }
+  .arch-table th.r { text-align: right; }
+  .arch-table td { padding: .38rem .75rem; border-bottom: 1px solid rgba(255,255,255,.03); }
+  .arch-table tr:last-child td { border-bottom: none; }
+  .arch-table td.r { text-align: right; font-variant-numeric: tabular-nums; }
 
   .mu-header {
     display: grid; grid-template-columns: 1fr 70px 70px 70px 70px 80px;
@@ -353,6 +386,8 @@ function renderResults(d) {
     </div>`;
   }
 
+  html += renderArchetypeBreakdown(d);
+
   res.innerHTML = html;
 }
 
@@ -360,7 +395,7 @@ function cardSection(label, cards, tier) {
   let html = `<div class="card-section">
     <div class="section-label">${label}</div>
     <div class="card-row" style="font-size:.65rem;color:var(--muted);letter-spacing:.07em;text-transform:uppercase;cursor:default;padding:.3rem .75rem">
-      <span>Card</span><span>Meta EV</span><span class="col-num">EV %</span><span class="col-std">± std</span><span class="col-incl">inclusion</span>
+      <span>Card</span><span>Meta EV</span><span class="col-num">EV %</span><span class="col-std">± std</span><span class="col-incl">inclusion</span><span></span>
     </div>`;
   cards.forEach((c, i) => {
     const rowId = `${tier}-${i}`;
@@ -377,10 +412,11 @@ function cardRow(c, rowId, tier) {
   const pill    = tier === 'core'   ? '<span class="tier-pill pill-core">CORE</span>'
                 : tier === 'tech'   ? '<span class="tier-pill pill-tech">TECH</span>'
                 : '';
+  const hasMatchups = c.per_matchup && c.per_matchup.some(m => m.scoreable);
 
   return `
   <div class="card-row ${c.is_core ? 'muted' : ''}" id="row-${rowId}"
-       onclick="toggleMatchups('${rowId}')">
+       onclick="toggleMatchups('${rowId}')" style="${hasMatchups ? '' : 'cursor:default'}">
     <span class="col-name">${pill}${esc(c.card_name)}</span>
     <div class="col-bar">
       <div class="fill" style="width:${absFill}%;background:${color}"></div>
@@ -388,6 +424,7 @@ function cardRow(c, rowId, tier) {
     <span class="col-num" style="color:${color}">${signPct(ev)}</span>
     <span class="col-std">± ${pct(c.meta_ev_std * 1.645)}</span>
     <span class="col-incl">${pct(c.inclusion_rate)}</span>
+    <span class="col-caret">${hasMatchups ? '▾' : ''}</span>
   </div>`;
 }
 
@@ -428,6 +465,78 @@ function toggleMatchups(rowId) {
   if (!panel) return;
   const open = panel.classList.toggle('open');
   row.classList.toggle('expanded', open);
+}
+
+// ── Archetype breakdown ───────────────────────────────────────────────────────
+function renderArchetypeBreakdown(d) {
+  if (!d.opponent_archetypes || !d.opponent_archetypes.length) return '';
+
+  // Build index: opp_id → [{card_name, delta, wr_with, wr_without, n_with, n_without}]
+  const byOpp = {};
+  for (const card of d.cards) {
+    if (card.is_core) continue;
+    for (const mu of (card.per_matchup || [])) {
+      if (!mu.scoreable) continue;
+      (byOpp[mu.opponent_deck_id] ??= []).push({ ...mu, card_name: card.card_name });
+    }
+  }
+
+  const archs = d.opponent_archetypes.filter(a => byOpp[a.id] && byOpp[a.id].length);
+  if (!archs.length) return '';
+
+  let html = `<div class="card-section">
+    <div class="section-label">By Opponent Archetype</div>`;
+
+  archs.forEach((arch, i) => {
+    const rows = [...byOpp[arch.id]].sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta));
+    const tableRows = rows.map(mu => {
+      const col = mu.delta > 0 ? '#4ade80' : mu.delta < 0 ? '#f87171' : 'var(--muted)';
+      const bw  = Math.min(Math.abs(mu.delta) * 400, 56);
+      return `<tr>
+        <td>${esc(mu.card_name)}</td>
+        <td class="r" style="color:var(--muted)">${pct(mu.wr_without)}</td>
+        <td class="r" style="color:var(--electric)">${pct(mu.wr_with)}</td>
+        <td class="r" style="color:${col};font-weight:700">${signPct(mu.delta)}</td>
+        <td class="r" style="color:var(--muted);font-size:.7rem">${mu.n_with}/${mu.n_without}</td>
+        <td style="width:64px;padding-left:.5rem">
+          <div style="height:4px;border-radius:2px;width:${bw}px;background:${col}"></div>
+        </td>
+      </tr>`;
+    }).join('');
+
+    html += `
+    <div class="arch-block">
+      <div class="arch-block-header" id="ah-${i}" onclick="toggleArch(${i})">
+        <span class="arch-name">${esc(arch.name || arch.id)}</span>
+        <span style="display:flex;align-items:center;gap:.75rem">
+          <span class="arch-share">${pct(arch.share)} meta</span>
+          <span class="arch-caret">▾</span>
+        </span>
+      </div>
+      <div class="arch-table-wrap" id="at-${i}">
+        <table class="arch-table">
+          <thead><tr>
+            <th>Card</th>
+            <th class="r">W/O</th>
+            <th class="r" style="color:var(--electric)">With</th>
+            <th class="r">Δ EV</th>
+            <th class="r">n w/wo</th>
+            <th></th>
+          </tr></thead>
+          <tbody>${tableRows}</tbody>
+        </table>
+      </div>
+    </div>`;
+  });
+
+  return html + '</div>';
+}
+
+function toggleArch(i) {
+  const hdr  = document.getElementById('ah-' + i);
+  const wrap = document.getElementById('at-' + i);
+  const open = wrap.classList.toggle('open');
+  hdr.classList.toggle('open', open);
 }
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
