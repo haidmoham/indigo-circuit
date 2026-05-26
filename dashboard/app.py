@@ -231,6 +231,8 @@ def ev_compute():
         if "error" in result:
             return jsonify(result), 422
         return jsonify(result)
+    except duckdb.CatalogException:
+        return jsonify({"error": "EV data is still being built — check back after the nightly pipeline runs."}), 503
     except Exception as e:
         app.logger.exception("[ev] compute error")
         return jsonify({"error": str(e)}), 500
@@ -240,17 +242,19 @@ def ev_compute():
 def ev_archetypes():
     """List of archetypes available for manual override in EV Lab."""
     rows = query(f"""
-        SELECT deck_id, deck_name, total_lists
-        FROM {MARTS}.card_archetype_stats
-        GROUP BY deck_id, deck_name, total_lists
-        ORDER BY total_lists DESC
+        SELECT ca.deck_id,
+               MIN(s.deck_name) AS deck_name,
+               ca.total_lists
+        FROM {MARTS}.card_archetype_stats ca
+        LEFT JOIN raw.standings s
+               ON s.deck_id = ca.deck_id AND s.deck_name IS NOT NULL
+        GROUP BY ca.deck_id, ca.total_lists
+        ORDER BY ca.total_lists DESC
     """)
-    seen = {}
-    for r in rows:
-        if r["DECK_ID"] not in seen:
-            seen[r["DECK_ID"]] = {"deck_id": r["DECK_ID"], "deck_name": r["DECK_NAME"],
-                                   "total_lists": r["TOTAL_LISTS"]}
-    return jsonify(list(seen.values()))
+    return jsonify([
+        {"deck_id": r["DECK_ID"], "deck_name": r["DECK_NAME"], "total_lists": r["TOTAL_LISTS"]}
+        for r in rows
+    ])
 
 @app.get("/demons")
 def demons():
