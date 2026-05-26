@@ -347,18 +347,19 @@ async function loadArchetypes() {
   } catch(e) { console.warn('Could not load archetypes', e); }
 }
 
+const escAttr = s => esc(s).replace(/"/g, '&quot;');
+
 function renderArchList(q) {
   const norm = q.trim().toLowerCase();
   const matches = norm
     ? _archetypes.filter(a => (a.deck_name || a.deck_id).toLowerCase().includes(norm))
     : _archetypes;
   const list = document.getElementById('arch-list');
-  const autoRow = `<div class="arch-opt${!_selectedArchId ? ' selected' : ''}"
-    onclick="selectArch('', 'Auto-detect')">Auto-detect</div>`;
+  const autoRow = `<div class="arch-opt${!_selectedArchId ? ' selected' : ''}" data-id="" data-label="Auto-detect">Auto-detect</div>`;
   list.innerHTML = autoRow + matches.slice(0, 80).map(a => {
     const label = `${a.deck_name || a.deck_id} (${(a.total_lists||0).toLocaleString()})`;
     const sel   = a.deck_id === _selectedArchId ? ' selected' : '';
-    return `<div class="arch-opt${sel}" onclick="selectArch('${esc(a.deck_id)}', '${esc(label)}')">${esc(label)}</div>`;
+    return `<div class="arch-opt${sel}" data-id="${escAttr(a.deck_id)}" data-label="${escAttr(label)}">${esc(label)}</div>`;
   }).join('');
 }
 
@@ -394,6 +395,10 @@ document.addEventListener('DOMContentLoaded', () => {
       const first = document.querySelector('#arch-list .arch-opt:not(:first-child)');
       if (first) first.click();
     }
+  });
+  document.getElementById('arch-list').addEventListener('click', e => {
+    const opt = e.target.closest('.arch-opt');
+    if (opt) selectArch(opt.dataset.id, opt.dataset.label);
   });
   document.addEventListener('click', e => {
     if (_pickerOpen && !document.getElementById('arch-picker').contains(e.target)) closePicker();
