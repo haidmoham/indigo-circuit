@@ -519,15 +519,22 @@ def main():
             print(f"  #{s['placing']:3d} {s['player_name']:<25} {s['wins']}-{s['losses']}-{s['ties']}  {s['deck_name'] or '—'}")
         return
 
+    # Schema setup — brief write connection, closed immediately so dashboard reads
+    # can proceed while the long scrape loop runs.
     conn = get_conn()
-    try:
-        ensure_schema(conn)
+    ensure_schema(conn)
+    conn.close()
 
-        for t in tournaments:
+    for t in tournaments:
+        # Open a fresh write connection per tournament so DuckDB is only locked
+        # during the actual writes (~seconds), not the entire scrape duration.
+        conn = get_conn()
+        try:
             upsert_tournament(conn, t)
             log.info(f"  {t['id']} {t['name']}")
             standings = fetch_standings(t["id"])
             load_standings(conn, t["id"], standings)
+            conn.commit()
             log.info(f"    {len(standings)} standings loaded")
 
             if not args.with_decklists:
@@ -546,37 +553,41 @@ def main():
 
             already = set() if args.force else already_scraped_players(conn, t["id"])
             to_scrape = [p for p in candidate_players if p["player_id"] not in already]
+        finally:
+            conn.close()
 
-            if not to_scrape:
-                log.info(f"    {scope_label} already scraped ({len(already)} cached), skipping")
-                continue
+        if not to_scrape:
+            log.info(f"    {scope_label} already scraped ({len(already)} cached), skipping")
+            continue
 
-            log.info(f"    scraping {len(to_scrape)} players ({scope_label}, {len(already)} cached)...")
+        log.info(f"    scraping {len(to_scrape)} players ({scope_label}, {len(already)} cached)...")
 
+        # Scrape all HTTP (no DB open) then write in one short burst.
+        scraped = []
+        for p in to_scrape:
+            pid  = p["player_id"]
+            matches  = fetch_player_matches(t["id"], pid)
+            decklist = fetch_player_decklist(t["id"], pid)
+            scraped.append((p, matches, decklist))
+            log.debug(f"      #{p['placing']:3d} {p['player_name']}: {len(matches)} rounds, {len(decklist)} cards")
+
+        # Write burst — connection open only for the insert loop
+        conn = get_conn()
+        try:
             dl_count = match_count = 0
-            for p in to_scrape:
-                pid  = p["player_id"]
-                name = p["player_name"]
-
-                matches = fetch_player_matches(t["id"], pid)
-                load_player_matches(conn, t["id"], pid, matches)
-                if matches:
-                    match_count += 1
-
-                decklist = fetch_player_decklist(t["id"], pid)
-                load_player_decklist(conn, t["id"], pid, decklist)
-                if decklist:
-                    dl_count += 1
-
-                log.debug(f"      #{p['placing']:3d} {name}: {len(matches)} rounds, {len(decklist)} cards")
-
+            for p, matches, decklist in scraped:
+                load_player_matches(conn, t["id"], p["player_id"], matches)
+                load_player_decklist(conn, t["id"], p["player_id"], decklist)
+                if matches:  match_count += 1
+                if decklist: dl_count   += 1
             conn.commit()
-            log.info(f"    {match_count}/{len(to_scrape)} match pages, {dl_count}/{len(to_scrape)} decklists")
+        finally:
+            conn.close()
+
+        log.info(f"    {match_count}/{len(to_scrape)} match pages, {dl_count}/{len(to_scrape)} decklists")
 
         conn.commit()
         log.info("Done")
-    finally:
-        conn.close()
 
 
 if __name__ == "__main__":

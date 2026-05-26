@@ -1384,10 +1384,9 @@ def _run_majors_scrape():
         return
 
     log.info("[majors-scrape] Starting full-field decklist scrape")
-    Path(_PIPELINE_SIGNAL).touch()
-    _kill_db_holders(log)
-    _close_own_duckdb_fds(log)
-    time.sleep(2)
+    # No signal file — labs.py now opens a fresh connection per tournament so
+    # the DB is only locked during brief write bursts, not the full 8h run.
+    # Dashboard reads proceed normally between bursts.
 
     base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     steps = [
