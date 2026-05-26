@@ -192,18 +192,27 @@ def parse_ptcglive(raw: str) -> list[dict]:
 
 def detect_archetype(decklist: list[dict], conn) -> Optional[tuple[str, str, float]]:
     """
-    Score submitted list against all archetypes by CORE card overlap.
+    Score submitted list against all archetypes by Pokemon CORE card overlap.
+    Uses only pokemon-category CORE cards so trainer variation doesn't tank confidence.
     Returns (deck_id, deck_name, confidence_0_to_1) or None.
     """
-    submitted = {c["card_name"] for c in decklist}
+    # Only use pokemon cards from the submitted list for matching
+    submitted_pokemon = {
+        c["card_name"] for c in decklist
+        if c.get("card_category") in ("pokemon", None)  # None = no category parsed
+    }
+    # Fallback: if no category info, use all cards
+    if not submitted_pokemon:
+        submitted_pokemon = {c["card_name"] for c in decklist}
 
     rows = conn.execute("""
         SELECT deck_id, card_name
         FROM dbt_dev_marts.card_archetype_stats
         WHERE inclusion_rate >= ?
+          AND card_category = 'pokemon'
     """, (CORE_THRESHOLD,)).fetchall()
 
-    # Group core cards per archetype
+    # Group core pokemon cards per archetype
     cores: dict[str, set] = {}
     for deck_id, card_name in rows:
         cores.setdefault(deck_id, set()).add(card_name)
@@ -212,16 +221,16 @@ def detect_archetype(decklist: list[dict], conn) -> Optional[tuple[str, str, flo
     for deck_id, core_cards in cores.items():
         if not core_cards:
             continue
-        overlap = len(submitted & core_cards) / len(core_cards)
+        overlap = len(submitted_pokemon & core_cards) / len(core_cards)
         if best_score is None or overlap > best_score:
             best_id, best_score = deck_id, overlap
 
-    if best_id is None or best_score < 0.5:
+    if best_id is None or best_score < 0.4:
         return None
 
     name_row = conn.execute("""
-        SELECT deck_name FROM dbt_dev_marts.card_archetype_stats
-        WHERE deck_id = ? LIMIT 1
+        SELECT deck_name FROM raw.standings
+        WHERE deck_id = ? AND deck_name IS NOT NULL LIMIT 1
     """, (best_id,)).fetchone()
     deck_name = name_row[0] if name_row else best_id
 
@@ -285,8 +294,8 @@ def compute_list_ev(raw_list: str, conn,
     arch_name  = archetype_id
     if archetype_id:
         row = conn.execute("""
-            SELECT deck_name FROM dbt_dev_marts.card_archetype_stats
-            WHERE deck_id = ? LIMIT 1
+            SELECT deck_name FROM raw.standings
+            WHERE deck_id = ? AND deck_name IS NOT NULL LIMIT 1
         """, (archetype_id,)).fetchone()
         arch_name = row[0] if row else archetype_id
     else:
@@ -309,11 +318,12 @@ def compute_list_ev(raw_list: str, conn,
 
     # 5. Archetype baseline WR (meta-weighted, no card filter)
     baseline_rows = conn.execute("""
-        SELECT opp_deck_id,
-               (w_with + w_without)::float / (w_with + l_with + w_without + l_without) as agg_wr
+        SELECT opponent_deck_id,
+               SUM(w_with + w_without)::float /
+               NULLIF(SUM(w_with + l_with + w_without + l_without), 0) as agg_wr
         FROM dbt_dev_marts.card_match_splits
         WHERE deck_id = ?
-        GROUP BY opp_deck_id
+        GROUP BY opponent_deck_id
     """, (archetype_id,)).fetchall()
     agg_wr_by_opp = {r[0]: r[1] for r in baseline_rows}
 
