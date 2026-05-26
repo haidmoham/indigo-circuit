@@ -267,11 +267,10 @@ function renderGroup(title, icon, cards, themeColor) {
     const tier      = getTier(pct);
     const t         = TIER[tier];
     const rowId     = ++_rowCounter;
-    const safeCard  = JSON.stringify(name);
-
     return `
     <tr id="cr-${rowId}"
-        onclick="toggleEV(${rowId}, ${safeCard})"
+        data-card="${name.replace(/"/g,'&quot;').replace(/'/g,'&#39;')}"
+        onclick="toggleEV(${rowId}, this.dataset.card)"
         style="border-bottom:1px solid rgba(255,255,255,0.04);cursor:pointer;
                transition:background 0.1s;background:${t.rowBg};position:relative"
         onmouseover="if(!this.dataset.open)this.style.background='rgba(255,255,255,0.04)'"
