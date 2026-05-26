@@ -202,6 +202,56 @@ def online():
 def tech():
     return render_template("tech.html")
 
+
+@app.get("/ev-lab")
+def ev_lab():
+    return render_template("ev_lab.html")
+
+
+@app.post("/api/ev/compute")
+def ev_compute():
+    """
+    Compute Bayesian meta-weighted EV for a submitted decklist.
+    Body: {"decklist": "<ptcg live export>", "archetype_id": "<optional override>"}
+    """
+    try:
+        body        = request.get_json(force=True) or {}
+        raw_list    = body.get("decklist", "").strip()
+        archetype_id = body.get("archetype_id") or None
+        if not raw_list:
+            return jsonify({"error": "decklist is required"}), 400
+
+        from .ev import compute_list_ev
+        conn   = duckdb.connect(DUCKDB_PATH, read_only=True)
+        try:
+            result = compute_list_ev(raw_list, conn, archetype_id=archetype_id)
+        finally:
+            conn.close()
+
+        if "error" in result:
+            return jsonify(result), 422
+        return jsonify(result)
+    except Exception as e:
+        app.logger.exception("[ev] compute error")
+        return jsonify({"error": str(e)}), 500
+
+
+@app.get("/api/ev/archetypes")
+def ev_archetypes():
+    """List of archetypes available for manual override in EV Lab."""
+    rows = query(f"""
+        SELECT deck_id, deck_name, total_lists
+        FROM {MARTS}.card_archetype_stats
+        GROUP BY deck_id, deck_name, total_lists
+        ORDER BY total_lists DESC
+    """)
+    seen = {}
+    for r in rows:
+        if r["DECK_ID"] not in seen:
+            seen[r["DECK_ID"]] = {"deck_id": r["DECK_ID"], "deck_name": r["DECK_NAME"],
+                                   "total_lists": r["TOTAL_LISTS"]}
+    return jsonify(list(seen.values()))
+
 @app.get("/demons")
 def demons():
     return render_template("demons.html")

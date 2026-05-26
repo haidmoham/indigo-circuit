@@ -1,0 +1,438 @@
+{% extends "base.html" %}
+{% block content %}
+<style>
+  /* ── Layout ─────────────────────────────────────────────────────────────── */
+  #ev-root {
+    max-width: 1100px; margin: 0 auto; padding: 2rem 1.25rem 4rem;
+  }
+  .ev-header { margin-bottom: 2rem; }
+  .ev-header h1 { font-size: 1.6rem; font-weight: 800; letter-spacing: .04em; color: var(--text); }
+  .ev-header p  { font-size: .78rem; color: var(--muted); margin-top: .25rem; letter-spacing: .06em; text-transform: uppercase; }
+
+  /* ── Input panel ─────────────────────────────────────────────────────────── */
+  #input-panel {
+    display: grid; grid-template-columns: 1fr 340px; gap: 1.25rem;
+    align-items: start;
+  }
+  @media (max-width: 760px) { #input-panel { grid-template-columns: 1fr; } }
+
+  textarea#paste-area {
+    width: 100%; height: 340px; resize: vertical;
+    background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.1);
+    border-radius: 10px; color: var(--text);
+    font-family: 'JetBrains Mono', 'Fira Code', monospace; font-size: .78rem;
+    line-height: 1.6; padding: 1rem; box-sizing: border-box;
+    outline: none; transition: border-color .2s;
+  }
+  textarea#paste-area:focus { border-color: var(--violet); }
+  textarea#paste-area::placeholder { color: var(--muted); opacity: .6; }
+
+  .side-panel { display: flex; flex-direction: column; gap: .85rem; }
+
+  .arch-box {
+    background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08);
+    border-radius: 10px; padding: 1rem 1.1rem;
+  }
+  .arch-box label { font-size: .7rem; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; display: block; margin-bottom: .5rem; }
+
+  #arch-detected {
+    display: flex; align-items: center; gap: .6rem; min-height: 2rem;
+    font-size: .88rem; color: var(--text);
+  }
+  .conf-badge {
+    font-size: .65rem; padding: .2rem .5rem; border-radius: 4px;
+    background: rgba(139,92,246,.2); color: var(--violet); letter-spacing: .06em;
+  }
+
+  select#arch-override {
+    width: 100%; background: rgba(255,255,255,.06);
+    border: 1px solid rgba(255,255,255,.1); border-radius: 6px;
+    color: var(--text); font-size: .82rem; padding: .45rem .7rem;
+    outline: none; margin-top: .5rem;
+  }
+
+  #run-btn {
+    width: 100%; padding: .85rem; border-radius: 8px; border: none; cursor: pointer;
+    background: var(--violet); color: #fff; font-size: .88rem; font-weight: 700;
+    letter-spacing: .06em; text-transform: uppercase;
+    transition: opacity .15s, transform .1s;
+  }
+  #run-btn:hover { opacity: .88; }
+  #run-btn:active { transform: scale(.98); }
+  #run-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+  .hint-box {
+    background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.06);
+    border-radius: 8px; padding: .85rem 1rem; font-size: .74rem; color: var(--muted);
+    line-height: 1.6;
+  }
+  .hint-box strong { color: var(--text); }
+
+  /* ── Results ─────────────────────────────────────────────────────────────── */
+  #results { margin-top: 2.5rem; display: none; }
+
+  .ev-summary {
+    display: flex; gap: 1.5rem; flex-wrap: wrap;
+    background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08);
+    border-radius: 12px; padding: 1.25rem 1.5rem; margin-bottom: 1.75rem;
+  }
+  .ev-stat { display: flex; flex-direction: column; gap: .2rem; }
+  .ev-stat .label { font-size: .66rem; color: var(--muted); letter-spacing: .08em; text-transform: uppercase; }
+  .ev-stat .value { font-size: 1.5rem; font-weight: 800; }
+  .ev-stat .ci    { font-size: .7rem; color: var(--muted); }
+
+  .green  { color: #4ade80; }
+  .red    { color: #f87171; }
+  .muted  { color: var(--muted); }
+
+  /* ── Card table ──────────────────────────────────────────────────────────── */
+  .card-section { margin-bottom: 2rem; }
+  .section-label {
+    font-size: .68rem; letter-spacing: .1em; text-transform: uppercase;
+    color: var(--muted); border-bottom: 1px solid rgba(255,255,255,.07);
+    padding-bottom: .5rem; margin-bottom: .75rem;
+  }
+
+  .card-row {
+    display: grid;
+    grid-template-columns: 160px 1fr 90px 90px 90px;
+    gap: .5rem; align-items: center;
+    padding: .55rem .75rem; border-radius: 8px; margin-bottom: 2px;
+    cursor: pointer; transition: background .15s;
+    font-size: .83rem;
+  }
+  .card-row:hover { background: rgba(255,255,255,.04); }
+  .card-row.expanded { background: rgba(139,92,246,.07); border-radius: 8px 8px 0 0; }
+
+  .card-row .col-name { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .col-bar  { position: relative; height: 6px; background: rgba(255,255,255,.07); border-radius: 3px; }
+  .col-bar .fill { position: absolute; top:0; left:0; height: 100%; border-radius: 3px; transition: width .4s; }
+  .col-num  { text-align: right; font-variant-numeric: tabular-nums; }
+  .col-std  { text-align: right; font-size: .72rem; color: var(--muted); }
+  .col-incl { text-align: right; font-size: .72rem; color: var(--muted); }
+
+  .tier-pill {
+    font-size: .6rem; padding: .15rem .4rem; border-radius: 3px;
+    font-weight: 700; letter-spacing: .06em; margin-right: .4rem;
+    vertical-align: middle;
+  }
+  .pill-core   { background: rgba(245,158,11,.2); color: #f59e0b; }
+  .pill-common { background: rgba(99,102,241,.15); color: var(--electric); }
+  .pill-tech   { background: rgba(255,109,0,.15); color: rgba(255,109,0,.9); }
+
+  /* ── Matchup breakdown ───────────────────────────────────────────────────── */
+  .matchup-panel {
+    display: none; background: rgba(0,0,0,.25); border: 1px solid rgba(255,255,255,.07);
+    border-top: none; border-radius: 0 0 8px 8px;
+    padding: .75rem 1rem 1rem; margin-bottom: 2px;
+  }
+  .matchup-panel.open { display: block; }
+
+  .mu-header {
+    display: grid; grid-template-columns: 1fr 70px 70px 70px 70px 80px;
+    font-size: .65rem; color: var(--muted); letter-spacing: .07em; text-transform: uppercase;
+    padding: 0 0 .4rem; border-bottom: 1px solid rgba(255,255,255,.05); margin-bottom: .5rem;
+  }
+  .mu-row {
+    display: grid; grid-template-columns: 1fr 70px 70px 70px 70px 80px;
+    font-size: .8rem; padding: .3rem 0; align-items: center;
+    border-bottom: 1px solid rgba(255,255,255,.03);
+  }
+  .mu-row:last-child { border-bottom: none; }
+  .mu-delta { text-align: right; font-weight: 700; }
+  .mu-wr    { text-align: right; font-variant-numeric: tabular-nums; }
+  .mu-n     { text-align: right; font-size: .7rem; color: var(--muted); }
+  .mu-bar-wrap { display: flex; align-items: center; gap: 4px; }
+  .mu-bar { height: 4px; border-radius: 2px; min-width: 2px; }
+  .no-data { font-size: .72rem; color: var(--muted); opacity: .6; }
+
+  /* ── Unscored pills ──────────────────────────────────────────────────────── */
+  .unscored-wrap { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .5rem; }
+  .unscored-pill {
+    font-size: .72rem; padding: .2rem .55rem; border-radius: 4px;
+    background: rgba(255,255,255,.05); color: var(--muted); border: 1px solid rgba(255,255,255,.07);
+  }
+
+  /* ── Error / empty states ────────────────────────────────────────────────── */
+  .ev-error {
+    background: rgba(248,113,113,.1); border: 1px solid rgba(248,113,113,.25);
+    border-radius: 8px; padding: 1rem 1.25rem; color: #fca5a5; font-size: .85rem;
+  }
+  .spinner {
+    display: inline-block; width: 18px; height: 18px;
+    border: 2px solid rgba(255,255,255,.15); border-top-color: var(--violet);
+    border-radius: 50%; animation: spin .7s linear infinite; vertical-align: middle;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+
+<div id="ev-root">
+  <div class="ev-header">
+    <h1>EV Lab</h1>
+    <p>Bayesian meta-weighted expected value · paste any decklist · see which techs move the needle</p>
+  </div>
+
+  <div id="input-panel">
+    <textarea id="paste-area" placeholder="Paste PTCG Live export here...
+
+Pokémon: 14
+4 Dreepy TWM 158
+4 Drakloak TWM 159
+3 Dragapult ex TWM 130
+...
+
+Trainer: 36
+...
+
+Energy: 10
+..."></textarea>
+
+    <div class="side-panel">
+      <div class="arch-box">
+        <label>Detected Archetype</label>
+        <div id="arch-detected" style="color:var(--muted);font-size:.8rem;">— paste a list to detect —</div>
+        <select id="arch-override">
+          <option value="">Auto-detect</option>
+        </select>
+      </div>
+
+      <button id="run-btn" onclick="runEV()">Calculate EV</button>
+
+      <div class="hint-box">
+        <strong>How it works</strong><br>
+        Each card is split into matches where you ran it vs. didn't.
+        Win rates are estimated with a Beta prior (empirical Bayes), then
+        weighted by how often each opponent archetype appears in the meta.<br><br>
+        <strong>CORE</strong> cards (≥75% inclusion) contribute zero delta by definition.
+        <strong>TECH</strong> slots (&lt;40%) are where the signal lives.
+      </div>
+    </div>
+  </div>
+
+  <div id="results"></div>
+</div>
+
+<script>
+let _archetypes = [];
+let _currentResult = null;
+
+// ── Boot ──────────────────────────────────────────────────────────────────────
+(async function init() {
+  try {
+    const r = await fetch('/api/ev/archetypes');
+    _archetypes = await r.json();
+    const sel = document.getElementById('arch-override');
+    _archetypes.forEach(a => {
+      const opt = document.createElement('option');
+      opt.value = a.deck_id;
+      opt.textContent = `${a.deck_name} (${a.total_lists.toLocaleString()} lists)`;
+      sel.appendChild(opt);
+    });
+  } catch(e) { console.warn('Could not load archetypes', e); }
+})();
+
+// ── Live detection on paste ───────────────────────────────────────────────────
+document.getElementById('paste-area').addEventListener('input', debounce(detectArch, 600));
+
+function debounce(fn, ms) {
+  let t; return (...a) => { clearTimeout(t); t = setTimeout(() => fn(...a), ms); };
+}
+
+async function detectArch() {
+  const raw = document.getElementById('paste-area').value.trim();
+  if (!raw) return;
+  const el = document.getElementById('arch-detected');
+  el.innerHTML = '<span class="spinner"></span>';
+  try {
+    const r  = await fetch('/api/ev/compute', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({decklist: raw}),
+    });
+    const d = await r.json();
+    if (d.archetype_id) {
+      const pct = Math.round((d.confidence || 0) * 100);
+      el.innerHTML = `<span>${d.archetype_name || d.archetype_id}</span>
+        <span class="conf-badge">${pct}% match</span>`;
+    } else {
+      el.innerHTML = `<span style="color:var(--muted)">Not recognised</span>`;
+    }
+  } catch(e) {
+    el.innerHTML = `<span style="color:var(--muted)">—</span>`;
+  }
+}
+
+// ── Main compute ──────────────────────────────────────────────────────────────
+async function runEV() {
+  const raw  = document.getElementById('paste-area').value.trim();
+  const arch = document.getElementById('arch-override').value || null;
+  if (!raw) return;
+
+  const btn = document.getElementById('run-btn');
+  btn.disabled = true;
+  btn.innerHTML = '<span class="spinner"></span> Calculating…';
+
+  const res = document.getElementById('results');
+  res.style.display = 'block';
+  res.innerHTML = '<span class="spinner"></span> Running Bayesian EV…';
+
+  try {
+    const r = await fetch('/api/ev/compute', {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({decklist: raw, archetype_id: arch}),
+    });
+    const d = await r.json();
+    if (d.error) {
+      res.innerHTML = `<div class="ev-error">${d.error}</div>`;
+    } else {
+      _currentResult = d;
+      renderResults(d);
+    }
+  } catch(e) {
+    res.innerHTML = `<div class="ev-error">Request failed: ${e.message}</div>`;
+  } finally {
+    btn.disabled = false;
+    btn.textContent = 'Calculate EV';
+  }
+}
+
+// ── Render results ────────────────────────────────────────────────────────────
+function renderResults(d) {
+  const res = document.getElementById('results');
+  const evDelta = d.list_ev - d.baseline_wr;
+  const evPct   = pct(d.list_ev);
+  const basePct = pct(d.baseline_wr);
+  const deltaPct= signPct(evDelta);
+  const ci      = pct(d.list_ev_std * 1.645);
+
+  let html = `
+  <div class="ev-summary">
+    <div class="ev-stat">
+      <span class="label">Meta EV</span>
+      <span class="value ${evDelta >= 0 ? 'green' : 'red'}">${evPct}</span>
+      <span class="ci">90% CI ± ${ci}</span>
+    </div>
+    <div class="ev-stat">
+      <span class="label">Archetype Baseline</span>
+      <span class="value">${basePct}</span>
+      <span class="ci">pre-tech win rate</span>
+    </div>
+    <div class="ev-stat">
+      <span class="label">Tech Delta</span>
+      <span class="value ${evDelta >= 0 ? 'green' : 'red'}">${deltaPct}</span>
+      <span class="ci">from tech slots</span>
+    </div>
+    <div class="ev-stat">
+      <span class="label">Meta Coverage</span>
+      <span class="value">${Math.round(d.meta_coverage * 100)}%</span>
+      <span class="ci">of field scored</span>
+    </div>
+    <div class="ev-stat" style="margin-left:auto">
+      <span class="label">Archetype</span>
+      <span class="value" style="font-size:1rem;margin-top:.2rem">${d.archetype_name || d.archetype_id}</span>
+      <span class="ci">${Math.round((d.confidence||1)*100)}% confidence</span>
+    </div>
+  </div>`;
+
+  // Group cards
+  const tech   = d.cards.filter(c => !c.is_core && c.inclusion_rate <  0.40 && c.scoreable);
+  const common = d.cards.filter(c => !c.is_core && c.inclusion_rate >= 0.40 && c.scoreable);
+  const core   = d.cards.filter(c =>  c.is_core);
+  const unscoredCards = d.cards.filter(c => !c.is_core && !c.scoreable);
+
+  if (tech.length)   html += cardSection('Tech Slots  ·  inclusion < 40%',   tech,   'tech');
+  if (common.length) html += cardSection('Common Slots  ·  inclusion 40–75%', common, 'common');
+  if (core.length)   html += cardSection('Core  ·  inclusion ≥ 75%  ·  zero delta by definition', core, 'core');
+
+  if (unscoredCards.length || d.unscored_cards.length) {
+    const all = [...new Set([...unscoredCards.map(c=>c.card_name), ...d.unscored_cards])];
+    html += `<div class="card-section">
+      <div class="section-label">No Data  ·  insufficient match history</div>
+      <div class="unscored-wrap">${all.map(n=>`<span class="unscored-pill">${esc(n)}</span>`).join('')}</div>
+    </div>`;
+  }
+
+  res.innerHTML = html;
+}
+
+function cardSection(label, cards, tier) {
+  let html = `<div class="card-section">
+    <div class="section-label">${label}</div>
+    <div class="card-row" style="font-size:.65rem;color:var(--muted);letter-spacing:.07em;text-transform:uppercase;cursor:default;padding:.3rem .75rem">
+      <span>Card</span><span>Meta EV</span><span class="col-num">EV %</span><span class="col-std">± std</span><span class="col-incl">inclusion</span>
+    </div>`;
+  cards.forEach((c, i) => {
+    const rowId = `${tier}-${i}`;
+    html += cardRow(c, rowId, tier);
+    html += matchupPanel(c, rowId);
+  });
+  return html + '</div>';
+}
+
+function cardRow(c, rowId, tier) {
+  const ev      = c.meta_ev;
+  const absFill = Math.min(Math.abs(ev) * 500, 100);  // scale: ±20% fills bar
+  const color   = ev > 0 ? '#4ade80' : ev < 0 ? '#f87171' : 'var(--muted)';
+  const pill    = tier === 'core'   ? '<span class="tier-pill pill-core">CORE</span>'
+                : tier === 'tech'   ? '<span class="tier-pill pill-tech">TECH</span>'
+                : '';
+
+  return `
+  <div class="card-row ${c.is_core ? 'muted' : ''}" id="row-${rowId}"
+       onclick="toggleMatchups('${rowId}')">
+    <span class="col-name">${pill}${esc(c.card_name)}</span>
+    <div class="col-bar">
+      <div class="fill" style="width:${absFill}%;background:${color}"></div>
+    </div>
+    <span class="col-num" style="color:${color}">${signPct(ev)}</span>
+    <span class="col-std">± ${pct(c.meta_ev_std * 1.645)}</span>
+    <span class="col-incl">${pct(c.inclusion_rate)}</span>
+  </div>`;
+}
+
+function matchupPanel(c, rowId) {
+  if (!c.per_matchup || !c.per_matchup.length) return `<div class="matchup-panel" id="mu-${rowId}"></div>`;
+
+  const scored = c.per_matchup.filter(m => m.scoreable);
+  const rows = scored.slice(0, 12).map(m => {
+    const d = m.delta;
+    const col = d > 0 ? '#4ade80' : d < 0 ? '#f87171' : 'var(--muted)';
+    const bw  = Math.min(Math.abs(d) * 300, 60);
+    return `<div class="mu-row">
+      <span>${esc(m.opponent_deck_name || m.opponent_deck_id)}</span>
+      <span class="mu-wr">${pct(m.wr_without)}</span>
+      <span class="mu-wr">${pct(m.wr_with)}</span>
+      <span class="mu-delta" style="color:${col}">${signPct(d)}</span>
+      <span class="mu-n">${m.n_with}/${m.n_without}</span>
+      <div class="mu-bar-wrap"><div class="mu-bar" style="width:${bw}px;background:${col}"></div></div>
+    </div>`;
+  }).join('');
+
+  return `<div class="matchup-panel" id="mu-${rowId}">
+    <div class="mu-header">
+      <span>Opponent</span>
+      <span style="text-align:right">W/O card</span>
+      <span style="text-align:right">W/ card</span>
+      <span style="text-align:right">Δ EV</span>
+      <span style="text-align:right">n w/wo</span>
+      <span></span>
+    </div>
+    ${rows || '<span class="no-data">No scoreable matchups</span>'}
+  </div>`;
+}
+
+function toggleMatchups(rowId) {
+  const panel = document.getElementById(`mu-${rowId}`);
+  const row   = document.getElementById(`row-${rowId}`);
+  if (!panel) return;
+  const open = panel.classList.toggle('open');
+  row.classList.toggle('expanded', open);
+}
+
+// ── Helpers ───────────────────────────────────────────────────────────────────
+const pct     = v => (v * 100).toFixed(1) + '%';
+const signPct = v => (v >= 0 ? '+' : '') + (v * 100).toFixed(1) + '%';
+const esc     = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+</script>
+{% endblock %}

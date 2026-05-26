@@ -60,6 +60,20 @@ models:
       - name: card_name
         tests: [not_null]
 
+  - name: card_match_splits
+    description: >
+      Per-round win/loss splits by card presence for Bayesian EV calculation.
+      One row per (deck_id, card_name, opponent_deck_id). Powers EV Lab.
+      w_with/l_with = matches where player ran the card;
+      w_without/l_without = same archetype without it.
+    columns:
+      - name: deck_id
+        tests: [not_null]
+      - name: card_name
+        tests: [not_null]
+      - name: opponent_deck_id
+        tests: [not_null]
+
   - name: card_archetype_stats
     description: >
       Per-archetype card inclusion rates and counts. Powers tech card detection

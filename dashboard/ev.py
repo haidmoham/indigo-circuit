@@ -1,43 +1,26 @@
 """
 Deck EV calculator — Bayesian win-rate estimation and meta-weighted EV.
 
-Design doc (see conversation 2026-05-26):
-  - Each win rate modelled as Beta(α, β); conjugate prior for Bernoulli.
-  - Prior calibrated per archetype-matchup from aggregate historical WR
-    (empirical Bayes); falls back to Beta(15, 15) when no aggregate exists.
-  - Card EV = posterior_mean(with_card) - posterior_mean(without_card),
-    shrunk automatically toward 0 when sample sizes are small.
-  - Meta-weighted list EV = archetype_baseline_wr + Σ card_ev_deltas,
-    weighted by opponent archetype meta share.
-  - Variance propagated through all steps → credible intervals surfaced in UI.
+Math (see design doc 2026-05-26):
+  WR ~ Beta(α, β)  — conjugate prior for Bernoulli win rate.
+  Prior calibrated per archetype-matchup from aggregate historical WR
+  (empirical Bayes); falls back to Beta(15,15) when no aggregate exists.
+  Card EV = E[WR|with_card] - E[WR|without_card], shrunk toward 0 automatically.
+  List EV = archetype_baseline_WR + Σ card_ev_deltas, meta-share weighted.
+  Variance propagated end-to-end → credible intervals in the UI.
 
-NOT YET WIRED UP — implement once majors match data is populated.
-Entry point for the optimizer feature will be `list_ev(decklist, source)`.
+Entry point: compute_list_ev(raw_list, conn, source)
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, field
 from typing import Optional
 
-# scipy is an optional dep until this module is active; guard the import
-try:
-    from scipy.stats import beta as beta_dist
-    _SCIPY = True
-except ImportError:
-    _SCIPY = False
-
-
-# ---------------------------------------------------------------------------
-# Configuration
-# ---------------------------------------------------------------------------
-
-#: Phantom match count for the default prior — equivalent to 30 matches at 50%.
-#: Increase to be more conservative with sparse cards; decrease to trust data faster.
-DEFAULT_PRIOR_STRENGTH: int = 30
-
-#: Minimum real matches (with OR without card) required before the delta is
-#: considered scoreable. Below this the credible interval is too wide to act on.
-MIN_SCOREABLE_MATCHES: int = 20
+DEFAULT_PRIOR_STRENGTH: int = 30   # phantom match count; raise = more conservative
+MIN_SCOREABLE_MATCHES:  int = 20   # min real matches on either side to trust a delta
+CORE_THRESHOLD:         float = 0.75  # inclusion_rate >= this → CORE (skip for EV)
+MIN_ARCHETYPE_LISTS:    int = 50   # min lists for archetype to be in meta shares
 
 
 # ---------------------------------------------------------------------------
@@ -46,19 +29,8 @@ MIN_SCOREABLE_MATCHES: int = 20
 
 @dataclass
 class PosteriorWR:
-    """Posterior win-rate estimate for one side of a card split."""
-    wins:   int
-    losses: int
-    prior_a: float
-    prior_b: float
-
-    @property
-    def a(self) -> float:
-        return self.prior_a + self.wins
-
-    @property
-    def b(self) -> float:
-        return self.prior_b + self.losses
+    a: float  # alpha = prior_a + wins
+    b: float  # beta  = prior_b + losses
 
     @property
     def mean(self) -> float:
@@ -69,204 +41,92 @@ class PosteriorWR:
         n = self.a + self.b
         return (self.a * self.b) / (n ** 2 * (n + 1))
 
-    def credible_interval(self, mass: float = 0.90) -> tuple[float, float]:
-        """Return (lo, hi) highest-density interval."""
-        if not _SCIPY:
-            raise RuntimeError("scipy required for credible intervals")
-        lo = (1 - mass) / 2
-        hi = 1 - lo
-        return beta_dist.ppf(lo, self.a, self.b), beta_dist.ppf(hi, self.a, self.b)
-
 
 @dataclass
 class CardMatchupEV:
-    """EV of a single card against a single opponent archetype."""
     card_name:        str
     opponent_deck_id: str
-    delta:            float          # posterior_mean(with) - posterior_mean(without)
-    delta_variance:   float
+    opponent_deck_name: Optional[str]
+    delta:            float
+    delta_std:        float    # sqrt of variance — used for CI display
     n_with:           int
     n_without:        int
-    scoreable:        bool           # False when sample too small to trust
-
-    @property
-    def ci_halfwidth(self) -> float:
-        return self.delta_variance ** 0.5 * 1.645  # ~90% interval half-width
+    wr_with:          float
+    wr_without:       float
+    scoreable:        bool
 
 
 @dataclass
 class CardEV:
-    """Meta-weighted EV of a single card across all opponent archetypes."""
-    card_name:       str
-    meta_weighted_ev: float
-    meta_weighted_variance: float
-    per_matchup:     list[CardMatchupEV] = field(default_factory=list)
-    scoreable:       bool = True     # False if too few scoreable matchups
-
-    @property
-    def ci_halfwidth(self) -> float:
-        return self.meta_weighted_variance ** 0.5 * 1.645
+    card_name:        str
+    meta_ev:          float    # meta-weighted delta
+    meta_ev_std:      float
+    inclusion_rate:   float    # from card_archetype_stats
+    is_core:          bool
+    per_matchup:      list[CardMatchupEV] = field(default_factory=list)
+    scoreable:        bool = True
 
 
 @dataclass
 class ListEV:
-    """Meta-weighted EV for a full submitted decklist."""
-    archetype_id:       str
-    baseline_wr:        float        # archetype historical meta-weighted WR
-    list_ev:            float        # baseline + Σ card deltas
-    list_ev_variance:   float
-    per_card:           list[CardEV] = field(default_factory=list)
-    unscored_cards:     list[str]    = field(default_factory=list)  # no data
-
-    @property
-    def ci_halfwidth(self) -> float:
-        return self.list_ev_variance ** 0.5 * 1.645
+    archetype_id:     str
+    archetype_name:   Optional[str]
+    baseline_wr:      float    # archetype's meta-weighted historical WR
+    list_ev:          float    # baseline + Σ tech card deltas
+    list_ev_std:      float
+    per_card:         list[CardEV] = field(default_factory=list)
+    unscored_cards:   list[str]   = field(default_factory=list)
+    meta_coverage:    float = 0.0   # fraction of meta that had scoreable data
 
 
 # ---------------------------------------------------------------------------
-# Core math
+# Core Bayesian math
 # ---------------------------------------------------------------------------
 
-def make_prior(baseline_wr: Optional[float] = None,
-               strength: int = DEFAULT_PRIOR_STRENGTH) -> tuple[float, float]:
-    """
-    Return (alpha, beta) for the Beta prior.
-
-    If baseline_wr is provided (archetype's known aggregate WR vs this opponent),
-    the prior mean is set to that value (empirical Bayes).
-    Otherwise falls back to 0.5.
-    """
-    mu = baseline_wr if baseline_wr is not None else 0.5
-    mu = max(0.05, min(0.95, mu))   # clamp away from degenerate extremes
-    alpha = mu * strength
-    beta  = (1 - mu) * strength
-    return alpha, beta
+def _make_prior(baseline_wr: Optional[float],
+                strength: int = DEFAULT_PRIOR_STRENGTH) -> tuple[float, float]:
+    mu = max(0.05, min(0.95, baseline_wr if baseline_wr is not None else 0.5))
+    return mu * strength, (1 - mu) * strength
 
 
-def posterior_wr(wins: int, losses: int,
-                 prior_a: float, prior_b: float) -> PosteriorWR:
-    """Construct a posterior win-rate estimate from observed data + prior."""
-    return PosteriorWR(wins=wins, losses=losses,
-                       prior_a=prior_a, prior_b=prior_b)
+def _posterior(wins: int, losses: int,
+               prior_a: float, prior_b: float) -> PosteriorWR:
+    return PosteriorWR(a=prior_a + wins, b=prior_b + losses)
 
 
-def card_matchup_ev(card_name: str,
-                    opponent_deck_id: str,
-                    w_with: int, l_with: int,
-                    w_without: int, l_without: int,
-                    baseline_wr: Optional[float] = None) -> CardMatchupEV:
-    """
-    Compute the posterior EV delta for one card vs one opponent archetype.
-
-    Both the with-card and without-card win rates get the same prior so the
-    delta shrinks toward 0 as sample sizes decrease.
-    """
-    prior_a, prior_b = make_prior(baseline_wr)
-
-    p_with    = posterior_wr(w_with,    l_with,    prior_a, prior_b)
-    p_without = posterior_wr(w_without, l_without, prior_a, prior_b)
-
-    delta          = p_with.mean - p_without.mean
-    delta_variance = p_with.variance + p_without.variance   # independence approx
-    n              = min(w_with + l_with, w_without + l_without)
-    scoreable      = n >= MIN_SCOREABLE_MATCHES
-
+def _card_matchup_ev(card_name: str, opp_id: str, opp_name: Optional[str],
+                     w_with: int, l_with: int,
+                     w_without: int, l_without: int,
+                     baseline_wr: Optional[float] = None) -> CardMatchupEV:
+    pa, pb = _make_prior(baseline_wr)
+    p_w = _posterior(w_with,    l_with,    pa, pb)
+    p_o = _posterior(w_without, l_without, pa, pb)
+    delta    = p_w.mean - p_o.mean
+    delta_var = p_w.variance + p_o.variance
+    n = min(w_with + l_with, w_without + l_without)
     return CardMatchupEV(
         card_name=card_name,
-        opponent_deck_id=opponent_deck_id,
+        opponent_deck_id=opp_id,
+        opponent_deck_name=opp_name,
         delta=delta,
-        delta_variance=delta_variance,
+        delta_std=delta_var ** 0.5,
         n_with=w_with + l_with,
         n_without=w_without + l_without,
-        scoreable=scoreable,
-    )
-
-
-def meta_weighted_card_ev(card_name: str,
-                           matchups: list[CardMatchupEV],
-                           meta_shares: dict[str, float]) -> CardEV:
-    """
-    Collapse per-matchup deltas into a single meta-weighted EV for a card.
-
-    meta_shares: {deck_id: share} where shares sum to ~1.0.
-    Only scoreable matchups contribute; unscored matchups are skipped
-    (conservative — treats unknown matchups as zero delta).
-    """
-    weighted_ev  = 0.0
-    weighted_var = 0.0
-    scored_weight = 0.0
-
-    for m in matchups:
-        share = meta_shares.get(m.opponent_deck_id, 0.0)
-        if not m.scoreable or share == 0.0:
-            continue
-        weighted_ev  += m.delta   * share
-        weighted_var += m.delta_variance * share ** 2
-        scored_weight += share
-
-    # If we only scored a fraction of the meta, flag it
-    scoreable = scored_weight >= 0.5   # at least half the meta is represented
-
-    return CardEV(
-        card_name=card_name,
-        meta_weighted_ev=weighted_ev,
-        meta_weighted_variance=weighted_var,
-        per_matchup=matchups,
-        scoreable=scoreable,
+        wr_with=p_w.mean,
+        wr_without=p_o.mean,
+        scoreable=(n >= MIN_SCOREABLE_MATCHES),
     )
 
 
 # ---------------------------------------------------------------------------
-# List-level EV  (main entry point — stubbed, not yet wired to DB)
+# Parsing
 # ---------------------------------------------------------------------------
-
-def list_ev(decklist: list[dict],
-            archetype_id: str,
-            source: str = "majors") -> ListEV:
-    """
-    Compute meta-weighted EV for a submitted decklist.
-
-    Args:
-        decklist:     parsed card list, each entry {"card_name": str, "card_count": int, ...}
-        archetype_id: detected or user-confirmed archetype (e.g. "dragapult-ex")
-        source:       "online" | "majors" | "both" — which match data to draw from
-
-    Returns:
-        ListEV with baseline WR, total list EV, per-card breakdown, and unscored cards.
-
-    TODO (implement when majors data lands):
-      1. Load archetype baseline WR vs each opponent from DB
-      2. Load meta shares from major_standings (or online standings for source=online)
-      3. For each non-CORE card in decklist, query match splits (w_with/l_with etc.)
-         from major_matches + major_decklists JOIN
-      4. Call card_matchup_ev() per card per opponent
-      5. Call meta_weighted_card_ev() per card
-      6. Sum card EVs over non-CORE slots → list_ev
-      7. CORE cards contribute zero delta by definition (run in every list)
-    """
-    raise NotImplementedError(
-        "list_ev() is stubbed — implement once major_matches data is populated. "
-        "See dashboard/ev.py docstring for full design."
-    )
-
-
-def detect_archetype(decklist: list[dict],
-                     known_archetypes: list[dict]) -> Optional[str]:
-    """
-    Score the submitted list against known archetypes by CORE card overlap.
-    Returns the best-matching archetype_id, or None if confidence is too low.
-
-    TODO: implement using card_archetype_stats inclusion_rate >= 0.75 as CORE definition.
-    known_archetypes: list of {deck_id, core_cards: [card_name, ...]}
-    """
-    raise NotImplementedError("detect_archetype() stubbed")
-
 
 def parse_ptcglive(raw: str) -> list[dict]:
     """
-    Parse a PTCG Live export string into a card list.
+    Parse a PTCG Live export string.
 
-    Expected format:
+    Accepts:
         Pokémon: 12
         4 Dreepy TWM 158
         ...
@@ -276,9 +136,300 @@ def parse_ptcglive(raw: str) -> list[dict]:
         ...
 
     Returns list of {"card_category", "card_name", "card_set", "card_count"}.
-
-    TODO: wire up — parser logic already exists in ingest/labs.py (_parse_card_text).
-    Refactor shared logic to a common module (ingest/cards.py) so both
-    labs.py and ev.py can import it without circular deps.
     """
-    raise NotImplementedError("parse_ptcglive() stubbed")
+    cards = []
+    current_category: Optional[str] = None
+    set_num_re = re.compile(r'\s+([A-Z]{2,6})\s+(\d+[A-Z]?)\s*$')
+
+    for raw_line in raw.splitlines():
+        line = raw_line.strip()
+        if not line:
+            continue
+
+        lower = line.lower()
+        if lower.startswith("pokémon") or lower.startswith("pokemon"):
+            current_category = "pokemon"
+            continue
+        if lower.startswith("trainer"):
+            current_category = "trainer"
+            continue
+        if lower.startswith("energy"):
+            current_category = "energy"
+            continue
+        if not current_category:
+            continue
+
+        # "4 Dreepy TWM 158" or "4 Dreepy"
+        m = re.match(r'^(\d+)\s+(.+)$', line)
+        if not m:
+            continue
+
+        count     = int(m.group(1))
+        name_part = m.group(2).strip()
+
+        # Strip trailing set + number if present
+        card_set = card_number = None
+        sm = set_num_re.search(name_part)
+        if sm:
+            card_set    = sm.group(1)
+            card_number = sm.group(2)
+            name_part   = name_part[:sm.start()].strip()
+
+        if name_part:
+            cards.append({
+                "card_category": current_category,
+                "card_name":     name_part,
+                "card_set":      card_set,
+                "card_count":    count,
+            })
+
+    return cards
+
+
+# ---------------------------------------------------------------------------
+# Archetype detection
+# ---------------------------------------------------------------------------
+
+def detect_archetype(decklist: list[dict], conn) -> Optional[tuple[str, str, float]]:
+    """
+    Score submitted list against all archetypes by CORE card overlap.
+    Returns (deck_id, deck_name, confidence_0_to_1) or None.
+    """
+    submitted = {c["card_name"] for c in decklist}
+
+    rows = conn.execute("""
+        SELECT deck_id, card_name
+        FROM dbt_dev_marts.card_archetype_stats
+        WHERE inclusion_rate >= ?
+    """, (CORE_THRESHOLD,)).fetchall()
+
+    # Group core cards per archetype
+    cores: dict[str, set] = {}
+    for deck_id, card_name in rows:
+        cores.setdefault(deck_id, set()).add(card_name)
+
+    best_id = best_score = None
+    for deck_id, core_cards in cores.items():
+        if not core_cards:
+            continue
+        overlap = len(submitted & core_cards) / len(core_cards)
+        if best_score is None or overlap > best_score:
+            best_id, best_score = deck_id, overlap
+
+    if best_id is None or best_score < 0.5:
+        return None
+
+    name_row = conn.execute("""
+        SELECT deck_name FROM dbt_dev_marts.card_archetype_stats
+        WHERE deck_id = ? LIMIT 1
+    """, (best_id,)).fetchone()
+    deck_name = name_row[0] if name_row else best_id
+
+    return best_id, deck_name, round(best_score, 3)
+
+
+# ---------------------------------------------------------------------------
+# Meta shares
+# ---------------------------------------------------------------------------
+
+def _meta_shares(conn) -> dict[str, float]:
+    """Fraction of online tournament lists per archetype."""
+    rows = conn.execute("""
+        SELECT deck_id, COUNT(*) as n
+        FROM raw.standings
+        WHERE deck_id IS NOT NULL
+        GROUP BY deck_id
+        HAVING COUNT(*) >= ?
+    """, (MIN_ARCHETYPE_LISTS,)).fetchall()
+
+    total = sum(r[1] for r in rows)
+    if total == 0:
+        return {}
+    return {r[0]: r[1] / total for r in rows}
+
+
+def _deck_names(conn) -> dict[str, str]:
+    """deck_id → deck_name lookup from standings."""
+    rows = conn.execute("""
+        SELECT DISTINCT deck_id, deck_name
+        FROM raw.standings
+        WHERE deck_id IS NOT NULL AND deck_name IS NOT NULL
+    """).fetchall()
+    return {r[0]: r[1] for r in rows}
+
+
+# ---------------------------------------------------------------------------
+# Main entry point
+# ---------------------------------------------------------------------------
+
+def compute_list_ev(raw_list: str, conn,
+                    archetype_id: Optional[str] = None) -> dict:
+    """
+    Full pipeline: parse → detect → query splits → Bayesian EV → return.
+
+    Returns a JSON-serialisable dict with:
+      archetype_id, archetype_name, confidence,
+      baseline_wr, list_ev, list_ev_std,
+      cards: [{card_name, meta_ev, meta_ev_std, inclusion_rate, is_core,
+               scoreable, per_matchup: [{opp, delta, std, wr_with, wr_without,
+               n_with, n_without, scoreable}]}],
+      unscored_cards, meta_coverage, error (if any)
+    """
+    # 1. Parse
+    decklist = parse_ptcglive(raw_list)
+    if not decklist:
+        return {"error": "Could not parse decklist — paste PTCG Live export format"}
+
+    # 2. Detect or accept provided archetype
+    confidence = 1.0
+    arch_name  = archetype_id
+    if archetype_id:
+        row = conn.execute("""
+            SELECT deck_name FROM dbt_dev_marts.card_archetype_stats
+            WHERE deck_id = ? LIMIT 1
+        """, (archetype_id,)).fetchone()
+        arch_name = row[0] if row else archetype_id
+    else:
+        detected = detect_archetype(decklist, conn)
+        if not detected:
+            return {"error": "Could not identify archetype — try selecting manually"}
+        archetype_id, arch_name, confidence = detected
+
+    # 3. Load meta shares + deck names
+    meta_shares = _meta_shares(conn)
+    deck_names  = _deck_names(conn)
+
+    # 4. Load inclusion rates for this archetype
+    inclusion_rows = conn.execute("""
+        SELECT card_name, inclusion_rate
+        FROM dbt_dev_marts.card_archetype_stats
+        WHERE deck_id = ?
+    """, (archetype_id,)).fetchall()
+    inclusion = {r[0]: r[1] for r in inclusion_rows}
+
+    # 5. Archetype baseline WR (meta-weighted, no card filter)
+    baseline_rows = conn.execute("""
+        SELECT opp_deck_id,
+               (w_with + w_without)::float / (w_with + l_with + w_without + l_without) as agg_wr
+        FROM dbt_dev_marts.card_match_splits
+        WHERE deck_id = ?
+        GROUP BY opp_deck_id
+    """, (archetype_id,)).fetchall()
+    agg_wr_by_opp = {r[0]: r[1] for r in baseline_rows}
+
+    baseline_wr = sum(
+        agg_wr_by_opp.get(opp, 0.5) * share
+        for opp, share in meta_shares.items()
+    ) or 0.5
+
+    # 6. Load splits for all cards in submitted list
+    submitted_cards = list({c["card_name"] for c in decklist})
+    if not submitted_cards:
+        return {"error": "No cards found in decklist"}
+
+    placeholders = ",".join("?" * len(submitted_cards))
+    split_rows = conn.execute(f"""
+        SELECT card_name, opponent_deck_id,
+               w_with, l_with, w_without, l_without
+        FROM dbt_dev_marts.card_match_splits
+        WHERE deck_id = ?
+          AND card_name IN ({placeholders})
+    """, [archetype_id] + submitted_cards).fetchall()
+
+    # Index splits by (card_name, opp_deck_id)
+    splits: dict[tuple, tuple] = {}
+    for row in split_rows:
+        splits[(row[0], row[1])] = row[2:]   # w_with, l_with, w_without, l_without
+
+    # 7. Compute per-card EV
+    card_evs: list[CardEV] = []
+    unscored: list[str]    = []
+    total_ev = total_var   = 0.0
+    scored_meta_weight     = 0.0
+
+    for card_name in submitted_cards:
+        rate      = inclusion.get(card_name)
+        is_core   = rate is not None and rate >= CORE_THRESHOLD
+
+        matchups: list[CardMatchupEV] = []
+        card_meta_ev = card_meta_var = 0.0
+        card_scored_weight = 0.0
+
+        for opp_id, share in meta_shares.items():
+            key = (card_name, opp_id)
+            if key not in splits:
+                continue
+            w_with, l_with, w_without, l_without = splits[key]
+            baseline = agg_wr_by_opp.get(opp_id)
+            mu = _card_matchup_ev(
+                card_name, opp_id, deck_names.get(opp_id),
+                w_with, l_with, w_without, l_without,
+                baseline_wr=baseline,
+            )
+            matchups.append(mu)
+            if mu.scoreable:
+                card_meta_ev  += mu.delta   * share
+                card_meta_var += (mu.delta_std ** 2) * (share ** 2)
+                card_scored_weight += share
+
+        if not matchups or card_scored_weight < 0.3:
+            if not is_core:
+                unscored.append(card_name)
+            # CORE cards silently skipped — they contribute zero delta by definition
+            continue
+
+        ev = CardEV(
+            card_name=card_name,
+            meta_ev=card_meta_ev,
+            meta_ev_std=card_meta_var ** 0.5,
+            inclusion_rate=rate if rate is not None else 0.0,
+            is_core=is_core,
+            per_matchup=sorted(matchups, key=lambda m: -abs(m.delta)),
+            scoreable=card_scored_weight >= 0.5,
+        )
+        card_evs.append(ev)
+
+        if not is_core:
+            total_ev  += card_meta_ev
+            total_var += card_meta_var
+            scored_meta_weight = max(scored_meta_weight, card_scored_weight)
+
+    # Sort cards: biggest absolute meta EV first, unscored CORE last
+    card_evs.sort(key=lambda c: (c.is_core, -abs(c.meta_ev)))
+
+    # 8. Serialise
+    return {
+        "archetype_id":   archetype_id,
+        "archetype_name": arch_name,
+        "confidence":     confidence,
+        "baseline_wr":    round(baseline_wr, 4),
+        "list_ev":        round(baseline_wr + total_ev, 4),
+        "list_ev_std":    round(total_var ** 0.5, 4),
+        "meta_coverage":  round(scored_meta_weight, 3),
+        "unscored_cards": unscored,
+        "cards": [
+            {
+                "card_name":      c.card_name,
+                "meta_ev":        round(c.meta_ev, 4),
+                "meta_ev_std":    round(c.meta_ev_std, 4),
+                "inclusion_rate": round(c.inclusion_rate, 3),
+                "is_core":        c.is_core,
+                "scoreable":      c.scoreable,
+                "per_matchup": [
+                    {
+                        "opponent_deck_id":   m.opponent_deck_id,
+                        "opponent_deck_name": m.opponent_deck_name,
+                        "delta":      round(m.delta, 4),
+                        "delta_std":  round(m.delta_std, 4),
+                        "wr_with":    round(m.wr_with, 4),
+                        "wr_without": round(m.wr_without, 4),
+                        "n_with":     m.n_with,
+                        "n_without":  m.n_without,
+                        "scoreable":  m.scoreable,
+                    }
+                    for m in c.per_matchup
+                ],
+            }
+            for c in card_evs
+        ],
+    }
