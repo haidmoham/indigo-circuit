@@ -16,3 +16,5 @@ profiles.yml
 # misc
 .DS_Store
 *.log
+data/*.duckdb
+transform/.user.yml
