@@ -586,9 +586,6 @@ def main():
 
         log.info(f"    {match_count}/{len(to_scrape)} match pages, {dl_count}/{len(to_scrape)} decklists")
 
-        conn.commit()
-        log.info("Done")
-
 
 if __name__ == "__main__":
     main()
