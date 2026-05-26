@@ -209,6 +209,11 @@ def ev_lab():
     return render_template("ev_lab.html")
 
 
+@app.get("/robots.txt")
+def robots():
+    return "User-agent: *\nDisallow: /admin/\nAllow: /\n", 200, {"Content-Type": "text/plain"}
+
+
 @app.post("/api/ev/compute")
 def ev_compute():
     """
@@ -226,11 +231,20 @@ def ev_compute():
             return jsonify({"error": "decklist is required"}), 400
 
         from .ev import compute_list_ev
-        conn   = duckdb.connect(DUCKDB_PATH, read_only=True)
-        try:
-            result = compute_list_ev(raw_list, conn, archetype_id=archetype_id, source=source)
-        finally:
-            conn.close()
+        # Retry up to 3× on transient write-lock conflicts (brief scrape bursts)
+        result = None
+        for attempt in range(3):
+            try:
+                conn = duckdb.connect(DUCKDB_PATH, read_only=True)
+                try:
+                    result = compute_list_ev(raw_list, conn, archetype_id=archetype_id, source=source)
+                finally:
+                    conn.close()
+                break
+            except duckdb.IOException:
+                if attempt == 2:
+                    raise
+                time.sleep(2 + attempt * 3)
 
         if "error" in result:
             return jsonify(result), 422
