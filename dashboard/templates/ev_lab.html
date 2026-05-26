@@ -565,11 +565,11 @@ function renderResults(d) {
   res.innerHTML = html;
 
   // Wire matchup focus UI
-  refreshFocusUI(d);
   let _focusPickerOpen = false;
   const _focusAddBtn  = document.getElementById('focus-add-btn');
   const _focusDrop    = document.getElementById('focus-dropdown');
   const _focusSearchEl = document.getElementById('focus-search');
+  refreshFocusUI(d);
 
   function closeFocusPicker() {
     _focusDrop.classList.remove('open');
