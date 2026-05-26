@@ -236,9 +236,12 @@ def ev_compute():
         return jsonify(result)
     except duckdb.CatalogException:
         return jsonify({"error": "EV data is still being built — check back after the nightly pipeline runs."}), 503
+    except duckdb.IOException:
+        app.logger.warning("[ev] DuckDB locked — pipeline likely running")
+        return jsonify({"error": "Data is temporarily unavailable while the pipeline runs — try again in a moment."}), 503
     except Exception as e:
         app.logger.exception("[ev] compute error")
-        return jsonify({"error": str(e)}), 500
+        return jsonify({"error": "An unexpected error occurred — check server logs."}), 500
 
 
 @app.get("/api/ev/archetypes")
