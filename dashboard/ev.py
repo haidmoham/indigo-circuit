@@ -185,7 +185,10 @@ def _card_copy_matchup_ev(card_name: str, opp_id: str, opp_name: Optional[str],
     else:
         marginal = 0.0
 
-    curve_counts = sorted(set(list(buckets.keys()) + [0, submitted_count]))
+    curve_counts = sorted(set(
+        [c for c in buckets if buckets[c][0] + buckets[c][1] > 0]
+        + [submitted_count]
+    ))
     copy_curve = {
         c: {
             "wr": round(_posterior(*buckets.get(c, (0, 0)), pa, pb).mean, 4),

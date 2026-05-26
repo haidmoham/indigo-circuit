@@ -225,24 +225,18 @@
   .no-data { font-size: .72rem; color: var(--muted); opacity: .6; }
 
   /* ── Copy curve ──────────────────────────────────────────────────────────── */
-  .copy-curve-wrap {
-    margin: 2px 0 6px 8px;
+  .copy-curve {
+    display: flex; flex-direction: column; gap: 1px;
+    margin: 2px 0 5px 6px; border-left: 2px solid rgba(255,255,255,.04);
   }
-  .copy-curve-table {
-    border-collapse: collapse; font-size: .72rem;
+  .cc-row {
+    display: grid; grid-template-columns: 26px 1fr 40px 28px;
+    align-items: center; gap: 5px; padding: 1px 0 1px 6px;
+    font-size: .7rem; color: var(--muted); font-variant-numeric: tabular-nums;
   }
-  .copy-curve-table th {
-    padding: .12rem .55rem; font-size: .6rem; font-weight: 800;
-    letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
-    text-align: right; opacity: .7;
-  }
-  .copy-curve-table th:first-child { text-align: left; }
-  .copy-curve-table td {
-    padding: .12rem .55rem; text-align: right;
-    font-variant-numeric: tabular-nums; color: var(--muted);
-  }
-  .copy-curve-table td:first-child { text-align: left; }
-  .copy-curve-table tr.yours td { color: var(--violet); font-weight: 600; }
+  .cc-row.yours { color: var(--violet); font-weight: 600; }
+  .cc-bar-track { height: 3px; background: rgba(255,255,255,.07); border-radius: 2px; position: relative; }
+  .cc-bar-fill  { position: absolute; top: 0; left: 0; height: 100%; border-radius: 2px; }
 
   /* ── Unscored pills ──────────────────────────────────────────────────────── */
   .unscored-wrap { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .5rem; }
@@ -575,21 +569,22 @@ function copyCurveHtml(m, submittedCount) {
   const entries = Object.entries(m.copy_curve)
     .map(([k, v]) => [parseInt(k), v])
     .sort(([a], [b]) => a - b);
-  const rows = entries.map(([copies, d]) => {
-    const isYours = copies === submittedCount;
-    const n = d.w + d.l;
-    return `<tr class="${isYours ? 'yours' : ''}">
-      <td>×${copies}${isYours ? ' <span style="font-size:.6rem;opacity:.7">YOU</span>' : ''}</td>
-      <td>${pct(d.wr)}</td>
-      <td>${n}</td>
-    </tr>`;
-  }).join('');
-  return `<div class="copy-curve-wrap">
-    <table class="copy-curve-table">
-      <thead><tr><th style="text-align:left">Copies</th><th>WR</th><th>n</th></tr></thead>
-      <tbody>${rows}</tbody>
-    </table>
-  </div>`;
+  if (!entries.length) return '';
+  const maxWr = Math.max(...entries.map(([, v]) => v.wr).filter(Boolean)) || 1;
+  return '<div class="copy-curve">' + entries.map(([copies, d]) => {
+    const yours   = copies === submittedCount;
+    const hasData = d.w + d.l > 0;
+    const barW    = hasData ? Math.round(d.wr / maxWr * 100) : 0;
+    const fill    = yours ? 'var(--violet)' : 'rgba(255,255,255,.28)';
+    const right   = hasData
+      ? `<span style="text-align:right">${pct(d.wr)}</span><span style="text-align:right;opacity:.6">${d.w + d.l}</span>`
+      : `<span style="grid-column:3/5;text-align:right;opacity:.4;font-style:italic">no data</span>`;
+    return `<div class="cc-row${yours ? ' yours' : ''}">
+      <span>×${copies}</span>
+      <div class="cc-bar-track"><div class="cc-bar-fill" style="width:${barW}%;background:${fill}"></div></div>
+      ${right}
+    </div>`;
+  }).join('') + '</div>';
 }
 
 function matchupPanel(c, rowId) {
