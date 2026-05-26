@@ -3,7 +3,7 @@
 <style>
   /* ── Layout ─────────────────────────────────────────────────────────────── */
   #ev-root {
-    max-width: 1100px; margin: 0 auto; padding: 2rem 1.25rem 4rem;
+    max-width: 1100px; margin: 0 auto; padding: 2rem 1.25rem 4rem; overflow-x: hidden;
   }
   .ev-header { margin-bottom: 2rem; }
   .ev-header h1 { font-size: 1.6rem; font-weight: 800; letter-spacing: .04em; color: var(--text); }
@@ -15,6 +15,7 @@
     align-items: start;
   }
   @media (max-width: 760px) { #input-panel { grid-template-columns: 1fr; } }
+  @media (max-width: 600px) { textarea#paste-area { height: 200px; } }
 
   textarea#paste-area {
     width: 100%; height: 340px; resize: vertical;
@@ -172,6 +173,11 @@
   .col-std  { text-align: right; font-size: .72rem; color: var(--muted); }
   .col-incl { text-align: right; font-size: .72rem; color: var(--muted); }
 
+  @media (max-width: 600px) {
+    .card-row { grid-template-columns: 1fr 72px 18px; }
+    .col-bar, .col-std, .col-incl { display: none; }
+  }
+
   .tier-pill {
     font-size: .6rem; padding: .15rem .4rem; border-radius: 3px;
     font-weight: 700; letter-spacing: .06em; margin-right: .4rem;
@@ -239,6 +245,12 @@
   .mu-bar-wrap { display: flex; align-items: center; gap: 4px; }
   .mu-bar { height: 4px; border-radius: 2px; min-width: 2px; }
   .no-data { font-size: .72rem; color: var(--muted); opacity: .6; }
+
+  @media (max-width: 600px) {
+    .mu-header, .mu-row { grid-template-columns: 1fr 52px 52px 52px; }
+    .mu-bar-wrap, .mu-n { display: none; }
+    .focus-dropdown { left: auto; right: 0; }
+  }
 
   /* ── Copy curve ──────────────────────────────────────────────────────────── */
   .copy-curve {
@@ -626,7 +638,7 @@ function cardSection(label, cards, tier) {
   let html = `<div class="card-section">
     <div class="section-label">${label}</div>
     <div class="card-row" style="font-size:.65rem;color:var(--muted);letter-spacing:.07em;text-transform:uppercase;cursor:default;padding:.3rem .75rem">
-      <span>Card</span><span>Meta EV</span><span class="col-num">EV %</span><span class="col-std">± std</span><span class="col-incl">copies · inclusion</span><span></span>
+      <span>Card</span><span class="col-bar">Meta EV</span><span class="col-num">EV %</span><span class="col-std">± std</span><span class="col-incl">copies · inclusion</span><span></span>
     </div>`;
   cards.forEach((c, i) => {
     const rowId = `${tier}-${i}`;
@@ -777,6 +789,7 @@ function renderArchetypeBreakdown(d) {
         </span>
       </div>
       <div class="arch-table-wrap" id="at-${i}">
+        <div style="overflow-x:auto">
         <table class="arch-table">
           <thead><tr>
             <th>Card</th>
@@ -788,6 +801,7 @@ function renderArchetypeBreakdown(d) {
           </tr></thead>
           <tbody>${tableRows}</tbody>
         </table>
+        </div>
       </div>
     </div>`;
   });
