@@ -8,16 +8,30 @@
     <h1 style="font-size:1.6rem;font-weight:900;line-height:1.1">Tech Scouting</h1>
     <p style="color:var(--muted);font-size:0.8rem;font-weight:600;margin-top:0.25rem;
               letter-spacing:0.04em;text-transform:uppercase">
-      Card inclusion rates · Limitless online decklists
+      Card inclusion rates · Click any card for matchup EV
     </p>
   </div>
-  <select id="deck-select"
-    style="background:var(--surface);color:var(--text);border:1px solid var(--border);
-           border-radius:8px;padding:0.4rem 0.75rem;font-size:0.8rem;font-weight:700;
-           font-family:inherit;letter-spacing:0.04em;cursor:pointer;outline:none;
-           text-transform:uppercase;min-width:220px">
-    <option value="">Loading decks…</option>
-  </select>
+  <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
+    <!-- Tier legend -->
+    <div style="display:flex;gap:0.5rem;align-items:center">
+      <span style="background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.3);
+                   padding:0.15rem 0.5rem;border-radius:4px;font-size:0.6rem;font-weight:800;
+                   letter-spacing:0.08em;text-transform:uppercase">Core</span>
+      <span style="background:rgba(99,102,241,0.12);color:var(--electric);border:1px solid rgba(99,102,241,0.25);
+                   padding:0.15rem 0.5rem;border-radius:4px;font-size:0.6rem;font-weight:800;
+                   letter-spacing:0.08em;text-transform:uppercase">Common</span>
+      <span style="background:rgba(255,109,0,0.1);color:#ff6d00;border:1px solid rgba(255,109,0,0.25);
+                   padding:0.15rem 0.5rem;border-radius:4px;font-size:0.6rem;font-weight:800;
+                   letter-spacing:0.08em;text-transform:uppercase">Tech</span>
+    </div>
+    <select id="deck-select"
+      style="background:var(--surface);color:var(--text);border:1px solid var(--border);
+             border-radius:8px;padding:0.4rem 0.75rem;font-size:0.8rem;font-weight:700;
+             font-family:inherit;letter-spacing:0.04em;cursor:pointer;outline:none;
+             text-transform:uppercase;min-width:220px">
+      <option value="">Loading decks…</option>
+    </select>
+  </div>
 </div>
 
 <div id="loading" class="loading-state" style="display:none">
@@ -41,7 +55,7 @@
 <div id="empty-state" style="text-align:center;padding:4rem 0;color:var(--muted)">
   <div style="font-size:2.5rem;margin-bottom:0.75rem">🔬</div>
   <div style="font-weight:700;font-size:1rem;letter-spacing:0.04em">Select a deck above to see its card breakdown</div>
-  <div style="font-size:0.78rem;margin-top:0.4rem">Inclusion rates computed from Limitless online tournament decklists</div>
+  <div style="font-size:0.78rem;margin-top:0.4rem">Core ≥ 75% · Common ≥ 40% · Tech &lt; 40%</div>
 </div>
 
 <div id="cards-wrap" style="display:none">
@@ -52,45 +66,205 @@
 {% endblock %}
 
 {% block scripts %}
-let currentTheme = { c: 'var(--violet)' };
+let currentDeckId  = '';
+let currentTheme   = { c: 'var(--violet)' };
+const _evCache     = {};   // key: "deckId:cardName"
+let _rowCounter    = 0;    // unique IDs across all rendered groups
 
-function inclusionColor(pct) {
-  if (pct >= 90) return 'var(--green)';
-  if (pct >= 60) return 'var(--electric)';
-  if (pct >= 35) return 'var(--violet)';
-  return 'var(--muted)';
+// ── Tier config ──────────────────────────────────────────────────────────────
+function getTier(pct) {
+  if (pct >= 75) return 'core';
+  if (pct >= 40) return 'common';
+  return 'tech';
 }
 
+const TIER = {
+  core: {
+    pill:     `<span style="display:inline-block;background:rgba(245,158,11,0.15);color:#f59e0b;
+                 border:1px solid rgba(245,158,11,0.3);border-radius:4px;font-size:0.55rem;
+                 font-weight:900;letter-spacing:0.08em;padding:0.1rem 0.35rem;
+                 text-transform:uppercase;vertical-align:middle;margin-right:0.4rem">CORE</span>`,
+    rowBg:    'rgba(245,158,11,0.04)',
+    barColor: '#f59e0b',
+    textStyle:'font-weight:800;color:var(--text)',
+    pctColor: '#f59e0b',
+  },
+  common: {
+    pill:     '',
+    rowBg:    'transparent',
+    barColor: 'var(--electric)',
+    textStyle:'font-weight:600;color:var(--text)',
+    pctColor: 'var(--electric)',
+  },
+  tech: {
+    pill:     `<span style="display:inline-block;background:rgba(255,109,0,0.1);color:#ff6d00;
+                 border:1px solid rgba(255,109,0,0.28);border-radius:4px;font-size:0.55rem;
+                 font-weight:900;letter-spacing:0.08em;padding:0.1rem 0.35rem;
+                 text-transform:uppercase;vertical-align:middle;margin-right:0.4rem">TECH</span>`,
+    rowBg:    'transparent',
+    barColor: 'rgba(255,109,0,0.5)',
+    textStyle:'font-weight:600;color:var(--muted);font-style:italic',
+    pctColor: 'var(--muted)',
+  },
+};
+
+// ── EV panel ─────────────────────────────────────────────────────────────────
+function toggleEV(rowId, cardName) {
+  const evRow     = document.getElementById('ev-' + rowId);
+  const cardRow   = document.getElementById('cr-' + rowId);
+  const isOpen    = evRow.style.display !== 'none';
+
+  // Close all other open panels
+  document.querySelectorAll('.ev-row').forEach(r => {
+    if (r.id !== 'ev-' + rowId) {
+      r.style.display = 'none';
+      const cr = document.getElementById(r.id.replace('ev-', 'cr-'));
+      if (cr) cr.dataset.open = '';
+    }
+  });
+
+  if (isOpen) {
+    evRow.style.display = 'none';
+    cardRow.dataset.open = '';
+    return;
+  }
+
+  cardRow.dataset.open = '1';
+  evRow.style.display  = '';
+
+  const cacheKey = currentDeckId + ':' + cardName;
+  if (_evCache[cacheKey]) {
+    renderEV(document.getElementById('ev-content-' + rowId), _evCache[cacheKey], cardName);
+    return;
+  }
+
+  document.getElementById('ev-content-' + rowId).innerHTML =
+    `<div style="padding:0.75rem 1rem;color:var(--muted);font-size:0.78rem">
+       <div class="spinner" style="display:inline-block;width:12px;height:12px;
+            margin-right:0.4rem;vertical-align:middle"></div>Loading matchup data…</div>`;
+
+  fetch(`/api/tech/${encodeURIComponent(currentDeckId)}/card-ev?card=${encodeURIComponent(cardName)}`)
+    .then(r => r.json())
+    .then(data => {
+      _evCache[cacheKey] = data;
+      renderEV(document.getElementById('ev-content-' + rowId), data, cardName);
+    })
+    .catch(() => {
+      document.getElementById('ev-content-' + rowId).innerHTML =
+        `<div style="padding:0.75rem 1rem;color:var(--red);font-size:0.78rem">Failed to load EV data.</div>`;
+    });
+}
+
+function renderEV(el, rows, cardName) {
+  if (!rows || rows.error || !rows.length) {
+    el.innerHTML = `<div style="padding:0.75rem 1rem;color:var(--muted);font-size:0.78rem;font-style:italic">
+      Not enough match data to compute EV for this card.</div>`;
+    return;
+  }
+
+  const tableRows = rows.map(r => {
+    const oppName   = r.OPP_DECK_NAME  || r.opp_deck_name  || r.OPP_DECK  || r.opp_deck || '—';
+    const nWithout  = r.N_WITHOUT  || r.n_without  || null;
+    const nWith     = r.N_WITH     || r.n_with     || null;
+    const wrWithout = r.WR_WITHOUT || r.wr_without;
+    const wrWith    = r.WR_WITH    || r.wr_with;
+    const delta     = r.DELTA      || r.delta;
+
+    const deltaColor = delta != null
+      ? (delta > 3 ? '#34d399' : delta < -3 ? '#fc8181' : 'var(--muted)')
+      : 'var(--muted)';
+    const deltaStr = delta != null
+      ? (delta > 0 ? '+' : '') + Number(delta).toFixed(1) + '%'
+      : '—';
+
+    const wrBar = (wr, n, color) => {
+      if (wr == null) return `<span style="color:var(--muted);font-size:0.72rem">—</span>`;
+      const pct = Math.min(100, Math.max(0, wr));
+      return `
+        <div style="display:flex;align-items:center;gap:0.4rem;justify-content:flex-end">
+          <div style="width:52px;height:4px;background:rgba(255,255,255,0.07);border-radius:2px;flex-shrink:0">
+            <div style="width:${pct}%;height:100%;background:${color};border-radius:2px"></div>
+          </div>
+          <span style="font-size:0.75rem;font-weight:700;color:${color};min-width:36px;text-align:right">
+            ${Number(wr).toFixed(1)}%
+          </span>
+          ${n != null ? `<span style="font-size:0.62rem;color:var(--muted);opacity:0.6;min-width:28px">n=${n}</span>` : ''}
+        </div>`;
+    };
+
+    return `
+    <tr style="border-bottom:1px solid rgba(255,255,255,0.03)">
+      <td style="padding:0.4rem 0.75rem;font-size:0.78rem;font-weight:600">${oppName}</td>
+      <td style="padding:0.4rem 0.75rem">${wrBar(wrWithout, nWithout, 'var(--muted)')}</td>
+      <td style="padding:0.4rem 0.75rem">${wrBar(wrWith,    nWith,    'var(--electric)')}</td>
+      <td style="padding:0.4rem 0.75rem;text-align:right;font-size:0.8rem;font-weight:900;color:${deltaColor}">
+        ${deltaStr}
+      </td>
+    </tr>`;
+  }).join('');
+
+  el.innerHTML = `
+  <div style="background:rgba(0,0,0,0.25);border-top:1px solid rgba(255,255,255,0.05)">
+    <div style="padding:0.5rem 0.75rem;display:flex;align-items:center;gap:0.75rem;
+                border-bottom:1px solid rgba(255,255,255,0.05);flex-wrap:wrap">
+      <span style="font-size:0.65rem;font-weight:800;letter-spacing:0.09em;
+                   text-transform:uppercase;color:var(--electric)">⚡ Matchup EV — ${cardName}</span>
+      <span style="font-size:0.65rem;color:var(--muted)">online events · Δ = WR with card − WR without</span>
+    </div>
+    <div style="overflow-x:auto">
+      <table style="width:100%;border-collapse:collapse;font-size:0.82rem">
+        <thead>
+          <tr style="color:var(--muted);font-size:0.6rem;font-weight:800;
+                     letter-spacing:0.09em;text-transform:uppercase">
+            <th style="padding:0.35rem 0.75rem;text-align:left;min-width:140px">Matchup</th>
+            <th style="padding:0.35rem 0.75rem;text-align:right;min-width:120px">W/O card</th>
+            <th style="padding:0.35rem 0.75rem;text-align:right;min-width:120px;color:var(--electric)">With card</th>
+            <th style="padding:0.35rem 0.75rem;text-align:right">Δ EV</th>
+          </tr>
+        </thead>
+        <tbody>${tableRows}</tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+// ── Render card group ─────────────────────────────────────────────────────────
 function renderGroup(title, icon, cards, themeColor) {
   if (!cards.length) return '';
 
   const rows = cards.map(c => {
-    const pct      = +(c.INCLUSION_PCT   || c.inclusion_pct   || 0);
-    const copies   = +(c.AVG_COPIES      || c.avg_copies      || 0);
-    const isTech   = c.IS_TECH_CARD      || c.is_tech_card;
-    const name     = c.CARD_NAME         || c.card_name        || '';
-    const set      = c.CARD_SET          || c.card_set         || '';
-    const barColor = inclusionColor(pct);
+    const pct       = +(c.INCLUSION_PCT   || c.inclusion_pct   || 0);
+    const copies    = +(c.AVG_COPIES      || c.avg_copies      || 0);
+    const name      = c.CARD_NAME         || c.card_name        || '';
+    const set       = c.CARD_SET          || c.card_set         || '';
+    const tier      = getTier(pct);
+    const t         = TIER[tier];
+    const rowId     = ++_rowCounter;
+    const safeCard  = JSON.stringify(name);
 
     return `
-    <tr style="border-bottom:1px solid rgba(255,255,255,0.04);transition:background 0.1s"
-        onmouseover="this.style.background='rgba(255,255,255,0.03)'"
-        onmouseout="this.style.background='transparent'">
-      <td style="padding:0.5rem 0.75rem;font-weight:700;font-size:0.88rem">
-        ${isTech ? `<span style="display:inline-block;background:rgba(255,109,0,0.15);
-          color:#ff6d00;border:1px solid rgba(255,109,0,0.35);border-radius:4px;
-          font-size:0.55rem;font-weight:900;letter-spacing:0.08em;padding:0.1rem 0.35rem;
-          text-transform:uppercase;vertical-align:middle;margin-right:0.4rem">TECH</span>` : ''}${name}
+    <tr id="cr-${rowId}"
+        onclick="toggleEV(${rowId}, ${safeCard})"
+        style="border-bottom:1px solid rgba(255,255,255,0.04);cursor:pointer;
+               transition:background 0.1s;background:${t.rowBg};position:relative"
+        onmouseover="if(!this.dataset.open)this.style.background='rgba(255,255,255,0.04)'"
+        onmouseout="this.style.background=this.dataset.open?'rgba(255,255,255,0.06)':'${t.rowBg}'">
+
+      <!-- Left-edge tier indicator -->
+      <td style="width:3px;padding:0;background:${tier==='core'?'#f59e0b':tier==='tech'?'#ff6d00':'transparent'}"></td>
+
+      <td style="padding:0.5rem 0.75rem;${t.textStyle}">
+        ${t.pill}${name}
       </td>
       <td style="padding:0.5rem 0.75rem;color:var(--muted);font-size:0.72rem;font-weight:600;
                  white-space:nowrap">${set}</td>
       <td style="padding:0.5rem 0.75rem;min-width:160px">
         <div style="display:flex;align-items:center;gap:0.5rem">
           <div style="flex:1;height:5px;background:rgba(255,255,255,0.07);border-radius:3px">
-            <div style="width:${pct}%;height:100%;background:${barColor};border-radius:3px;
+            <div style="width:${pct}%;height:100%;background:${t.barColor};border-radius:3px;
                         transition:width 0.5s ease"></div>
           </div>
-          <span style="font-size:0.78rem;font-weight:800;color:${barColor};
+          <span style="font-size:0.78rem;font-weight:800;color:${t.pctColor};
                        min-width:36px;text-align:right">${pct}%</span>
         </div>
       </td>
@@ -98,8 +272,23 @@ function renderGroup(title, icon, cards, themeColor) {
                  color:var(--muted);font-weight:600;white-space:nowrap">
         ×${copies.toFixed(1)}
       </td>
+      <td style="padding:0.5rem 0.75rem;text-align:center;color:var(--muted);
+                 font-size:0.7rem;opacity:0.5;white-space:nowrap">▾</td>
+    </tr>
+    <tr id="ev-${rowId}" class="ev-row" style="display:none">
+      <td colspan="6" style="padding:0">
+        <div id="ev-content-${rowId}"></div>
+      </td>
     </tr>`;
   }).join('');
+
+  // Core / common / tech counts for subtitle
+  const nCore   = cards.filter(c => getTier(+(c.INCLUSION_PCT||c.inclusion_pct||0)) === 'core').length;
+  const nTech   = cards.filter(c => getTier(+(c.INCLUSION_PCT||c.inclusion_pct||0)) === 'tech').length;
+  const subtitle = [
+    nCore ? `${nCore} core` : '',
+    nTech ? `${nTech} tech` : '',
+  ].filter(Boolean).join(' · ');
 
   return `
   <div class="card" style="border-top:3px solid ${themeColor};padding:0">
@@ -107,17 +296,21 @@ function renderGroup(title, icon, cards, themeColor) {
                 display:flex;align-items:center;justify-content:space-between">
       <span style="font-size:0.72rem;font-weight:800;letter-spacing:0.12em;
                    text-transform:uppercase;color:var(--muted)">${icon} ${title}</span>
-      <span style="font-size:0.68rem;color:var(--muted);font-weight:600">${cards.length} cards</span>
+      <span style="font-size:0.68rem;color:var(--muted);font-weight:600">
+        ${cards.length} cards${subtitle ? ' · ' + subtitle : ''}
+      </span>
     </div>
     <div style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:0.85rem">
         <thead>
           <tr style="color:var(--muted);font-size:0.62rem;font-weight:800;
                      letter-spacing:0.1em;text-transform:uppercase">
+            <th style="width:3px;padding:0"></th>
             <th style="padding:0.4rem 0.75rem;text-align:left">Card</th>
             <th style="padding:0.4rem 0.75rem;text-align:left">Set</th>
             <th style="padding:0.4rem 0.75rem;text-align:left;min-width:200px">Inclusion</th>
             <th style="padding:0.4rem 0.75rem;text-align:right">Avg Copies</th>
+            <th style="padding:0.4rem 0.75rem;width:24px"></th>
           </tr>
         </thead>
         <tbody>${rows}</tbody>
@@ -126,6 +319,7 @@ function renderGroup(title, icon, cards, themeColor) {
   </div>`;
 }
 
+// ── Deck loader ───────────────────────────────────────────────────────────────
 async function loadDecks() {
   const decks = await fetch('/api/tech/decks').then(r => r.json());
   const sel = document.getElementById('deck-select');
@@ -147,6 +341,10 @@ async function loadDecks() {
 }
 
 async function loadDeck(deckId, label) {
+  currentDeckId = deckId;
+  _rowCounter   = 0;
+  document.querySelectorAll('.ev-row').forEach(r => r.style.display = 'none');
+
   document.getElementById('empty-state').style.display  = 'none';
   document.getElementById('cards-wrap').style.display   = 'none';
   document.getElementById('deck-meta').style.display    = 'none';
@@ -165,38 +363,31 @@ async function loadDeck(deckId, label) {
   }
 
   // Deck header
-  const deckName = label.split(' (')[0].trim();
-  const sprite   = getSprite(null, deckName);
-  const theme    = getTheme({ TOP_DECK_NAME: deckName });
-  currentTheme   = theme;
-
+  const deckName  = label.split(' (')[0].trim();
+  const sprite    = getSprite(null, deckName);
+  const theme     = getTheme({ TOP_DECK_NAME: deckName });
+  currentTheme    = theme;
   const totalLists = cards[0]?.TOTAL_LISTS || cards[0]?.total_lists || 0;
 
-  document.getElementById('deck-title').textContent = deckName;
-  document.getElementById('deck-subtitle').textContent =
-    `${totalLists} decklists analysed`;
+  document.getElementById('deck-title').textContent   = deckName;
+  document.getElementById('deck-subtitle').textContent = `${totalLists} decklists analysed · Core ≥75% · Common ≥40% · Tech <40%`;
 
   if (sprite) {
     document.getElementById('deck-sprite').src = sprite;
-    document.getElementById('deck-sprite').style.filter =
-      `drop-shadow(0 0 8px ${theme.c}88)`;
+    document.getElementById('deck-sprite').style.filter = `drop-shadow(0 0 8px ${theme.c}88)`;
     document.getElementById('deck-sprite-wrap').style.display = '';
   } else {
     document.getElementById('deck-sprite-wrap').style.display = 'none';
   }
   document.getElementById('deck-meta').style.display = '';
 
-  // Group by category
   const pokemon  = cards.filter(c => (c.CARD_CATEGORY || c.card_category) === 'pokemon');
   const trainers = cards.filter(c => (c.CARD_CATEGORY || c.card_category) === 'trainer');
   const energy   = cards.filter(c => (c.CARD_CATEGORY || c.card_category) === 'energy');
 
-  document.getElementById('cards-pokemon').innerHTML =
-    renderGroup('Pokémon', '⬡', pokemon, theme.c);
-  document.getElementById('cards-trainer').innerHTML =
-    renderGroup('Trainers', '♠', trainers, theme.c);
-  document.getElementById('cards-energy').innerHTML =
-    renderGroup('Energy', '⚡', energy, theme.c);
+  document.getElementById('cards-pokemon').innerHTML = renderGroup('Pokémon', '⬡', pokemon,  theme.c);
+  document.getElementById('cards-trainer').innerHTML = renderGroup('Trainers', '♠', trainers, theme.c);
+  document.getElementById('cards-energy').innerHTML  = renderGroup('Energy',   '⚡', energy,   theme.c);
 
   document.getElementById('cards-wrap').style.display = '';
 }

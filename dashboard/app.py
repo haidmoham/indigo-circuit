@@ -434,6 +434,86 @@ def tech_cards(deck_id):
     return jsonify(cached(f"tech:{deck_id}", _fetch))
 
 
+@app.get("/api/tech/<path:deck_id>/card-ev")
+def tech_card_ev(deck_id):
+    """Win-rate with vs without a specific card, broken down by opponent archetype."""
+    card_name = request.args.get("card", "").strip()
+    if not card_name:
+        return jsonify({"error": "card param required"}), 400
+
+    def _fetch():
+        rows = query(
+            """
+            WITH match_rows AS (
+                SELECT m.tournament_id, m.player1 AS our, m.player2 AS opp,
+                    CASE WHEN m.winner = m.player1 THEN true
+                         WHEN m.winner = m.player2 THEN false
+                         ELSE NULL END AS won
+                FROM raw.matches m
+                WHERE m.winner NOT IN ('0','-1')
+                  AND m.player1 IS NOT NULL AND m.player2 IS NOT NULL
+                UNION ALL
+                SELECT m.tournament_id, m.player2, m.player1,
+                    CASE WHEN m.winner = m.player2 THEN true
+                         WHEN m.winner = m.player1 THEN false
+                         ELSE NULL END
+                FROM raw.matches m
+                WHERE m.winner NOT IN ('0','-1')
+                  AND m.player1 IS NOT NULL AND m.player2 IS NOT NULL
+            ),
+            with_decks AS (
+                SELECT mr.tournament_id, mr.our, mr.opp, mr.won,
+                       s2.deck_id AS opp_deck, s2.deck_name AS opp_deck_name
+                FROM match_rows mr
+                JOIN raw.standings s1
+                  ON mr.tournament_id = s1.tournament_id AND mr.our = s1.player_username
+                 AND s1.deck_id = ?
+                JOIN raw.standings s2
+                  ON mr.tournament_id = s2.tournament_id AND mr.opp = s2.player_username
+                WHERE mr.won IS NOT NULL AND s2.deck_id IS NOT NULL AND s2.deck_id != 'other'
+            ),
+            with_card AS (
+                SELECT wd.*,
+                       COALESCE(d.card_count, 0) > 0 AS has_card
+                FROM with_decks wd
+                LEFT JOIN raw.decklists d
+                  ON wd.tournament_id = d.tournament_id
+                 AND wd.our = d.player_username
+                 AND d.card_name = ?
+            ),
+            agg AS (
+                SELECT opp_deck, MAX(opp_deck_name) AS opp_deck_name, has_card,
+                       COUNT(*) AS n,
+                       ROUND(AVG(CASE WHEN won THEN 1.0 ELSE 0.0 END) * 100, 1) AS wr
+                FROM with_card
+                GROUP BY opp_deck, has_card
+            ),
+            pivoted AS (
+                SELECT
+                    opp_deck,
+                    MAX(opp_deck_name) AS opp_deck_name,
+                    MAX(CASE WHEN NOT has_card THEN n  END) AS n_without,
+                    MAX(CASE WHEN NOT has_card THEN wr END) AS wr_without,
+                    MAX(CASE WHEN has_card     THEN n  END) AS n_with,
+                    MAX(CASE WHEN has_card     THEN wr END) AS wr_with,
+                    SUM(n) AS total_n
+                FROM agg
+                GROUP BY opp_deck
+                HAVING SUM(n) >= 10
+            )
+            SELECT opp_deck, opp_deck_name, n_without, wr_without, n_with, wr_with,
+                   ROUND(COALESCE(wr_with, wr_without) - COALESCE(wr_without, wr_with), 1) AS delta
+            FROM pivoted
+            ORDER BY total_n DESC
+            LIMIT 15
+            """,
+            (deck_id, card_name),
+        )
+        return rows
+
+    return jsonify(cached(f"card-ev:{deck_id}:{card_name}", _fetch))
+
+
 @app.get("/api/player/<username>/vs/<opponent>")
 def head_to_head(username, opponent):
     rows = query(
