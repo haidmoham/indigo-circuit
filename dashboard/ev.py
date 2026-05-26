@@ -20,6 +20,7 @@ from typing import Optional
 
 DEFAULT_PRIOR_STRENGTH: int = 30   # phantom match count; raise = more conservative
 MIN_SCOREABLE_MATCHES:  int = 20   # min real matches on either side to trust a delta
+MIN_COPY_SCOREABLE:     int = 10   # min matches in a copy bucket to use copy modeling
 CORE_THRESHOLD:         float = 0.75  # inclusion_rate >= this → CORE (skip for EV)
 MIN_ARCHETYPE_LISTS:    int = 50   # min lists for archetype to be in meta shares
 
@@ -30,15 +31,17 @@ def _tables(source: str) -> dict:
     """Return table names for a given source: 'online' | 'majors' | 'both'."""
     if source == "majors":
         return {
-            "stats":     f"{MARTS}.major_card_archetype_stats",
-            "splits":    f"{MARTS}.major_card_match_splits",
-            "standings": "raw.major_standings",
+            "stats":       f"{MARTS}.major_card_archetype_stats",
+            "splits":      f"{MARTS}.major_card_match_splits",
+            "copy_splits": f"{MARTS}.major_card_copy_splits",
+            "standings":   "raw.major_standings",
         }
     # 'online' and 'both' start from online tables; 'both' adds major tables via UNION
     return {
-        "stats":     f"{MARTS}.card_archetype_stats",
-        "splits":    f"{MARTS}.card_match_splits",
-        "standings": "raw.standings",
+        "stats":       f"{MARTS}.card_archetype_stats",
+        "splits":      f"{MARTS}.card_match_splits",
+        "copy_splits": f"{MARTS}.card_copy_splits",
+        "standings":   "raw.standings",
     }
 
 
@@ -73,17 +76,22 @@ class CardMatchupEV:
     wr_with:          float
     wr_without:       float
     scoreable:        bool
+    marginal_delta:   float = 0.0   # WR(N) - WR(N-1); 0 if not copy-modeled
+    copy_curve:       dict  = field(default_factory=dict)
+    copy_modeled:     bool  = False  # True when copy-count buckets had enough data
 
 
 @dataclass
 class CardEV:
     card_name:        str
-    meta_ev:          float    # meta-weighted delta
+    meta_ev:          float    # meta-weighted delta = WR(submitted) - WR(0)
     meta_ev_std:      float
     inclusion_rate:   float    # from card_archetype_stats
     is_core:          bool
     per_matchup:      list[CardMatchupEV] = field(default_factory=list)
-    scoreable:        bool = True
+    scoreable:        bool  = True
+    marginal_ev:      float = 0.0   # meta-weighted WR(N) - WR(N-1)
+    copy_modeled:     bool  = False
 
 
 @dataclass
@@ -134,6 +142,73 @@ def _card_matchup_ev(card_name: str, opp_id: str, opp_name: Optional[str],
         wr_with=p_w.mean,
         wr_without=p_o.mean,
         scoreable=(n >= MIN_SCOREABLE_MATCHES),
+    )
+
+
+def _card_copy_matchup_ev(card_name: str, opp_id: str, opp_name: Optional[str],
+                           buckets: dict,          # {copy_count: (w, l)}
+                           submitted_count: int,
+                           baseline_wr: Optional[float] = None) -> CardMatchupEV:
+    """
+    Bayesian EV using per-copy-count buckets.
+    delta    = WR(submitted_count) - WR(0)
+    marginal = WR(N) - WR(N-1)
+
+    Falls back to binary (aggregating all non-zero buckets) when either
+    the 0-copy or submitted-count bucket has < MIN_COPY_SCOREABLE matches.
+    """
+    pa, pb = _make_prior(baseline_wr)
+
+    w0, l0 = buckets.get(0, (0, 0))
+    wn, ln = buckets.get(submitted_count, (0, 0))
+
+    if w0 + l0 < MIN_COPY_SCOREABLE or wn + ln < MIN_COPY_SCOREABLE:
+        # Aggregate all non-zero counts as binary "with card"
+        w_with = sum(w for c, (w, l) in buckets.items() if c > 0)
+        l_with = sum(l for c, (w, l) in buckets.items() if c > 0)
+        return _card_matchup_ev(
+            card_name, opp_id, opp_name,
+            w_with, l_with, w0, l0,
+            baseline_wr=baseline_wr,
+        )
+
+    p_zero = _posterior(w0, l0, pa, pb)
+    p_n    = _posterior(wn, ln, pa, pb)
+
+    delta     = p_n.mean - p_zero.mean
+    delta_var = p_n.variance + p_zero.variance
+
+    if submitted_count > 0:
+        wp, lp = buckets.get(submitted_count - 1, (0, 0))
+        p_prev   = _posterior(wp, lp, pa, pb)
+        marginal = p_n.mean - p_prev.mean
+    else:
+        marginal = 0.0
+
+    curve_counts = sorted(set(list(buckets.keys()) + [0, submitted_count]))
+    copy_curve = {
+        c: {
+            "wr": round(_posterior(*buckets.get(c, (0, 0)), pa, pb).mean, 4),
+            "w":  buckets.get(c, (0, 0))[0],
+            "l":  buckets.get(c, (0, 0))[1],
+        }
+        for c in curve_counts
+    }
+
+    return CardMatchupEV(
+        card_name=card_name,
+        opponent_deck_id=opp_id,
+        opponent_deck_name=opp_name,
+        delta=delta,
+        delta_std=delta_var ** 0.5,
+        n_with=wn + ln,
+        n_without=w0 + l0,
+        wr_with=p_n.mean,
+        wr_without=p_zero.mean,
+        scoreable=(min(wn + ln, w0 + l0) >= MIN_SCOREABLE_MATCHES),
+        marginal_delta=round(marginal, 4),
+        copy_curve=copy_curve,
+        copy_modeled=True,
     )
 
 
@@ -476,6 +551,36 @@ def compute_list_ev(raw_list: str, conn,
     for row in split_rows:
         splits[(row[0], row[1])] = row[2:]   # w_with, l_with, w_without, l_without
 
+    # 6b. Load copy splits for per-count Bayesian modeling
+    if source == "both":
+        copy_split_rows = conn.execute(f"""
+            SELECT card_name, opponent_deck_id, copy_count,
+                   SUM(w) as w, SUM(l) as l
+            FROM (
+                SELECT card_name, opponent_deck_id, copy_count, w, l
+                FROM {MARTS}.card_copy_splits
+                WHERE deck_id = ? AND card_name IN ({placeholders})
+                UNION ALL
+                SELECT card_name, opponent_deck_id, copy_count, w, l
+                FROM {MARTS}.major_card_copy_splits
+                WHERE deck_id = ? AND card_name IN ({placeholders})
+            ) sub
+            GROUP BY card_name, opponent_deck_id, copy_count
+        """, [archetype_id] + submitted_cards + [archetype_id] + submitted_cards).fetchall()
+    else:
+        copy_split_rows = conn.execute(f"""
+            SELECT card_name, opponent_deck_id, copy_count, w, l
+            FROM {t['copy_splits']}
+            WHERE deck_id = ?
+              AND card_name IN ({placeholders})
+        """, [archetype_id] + submitted_cards).fetchall()
+
+    # Index copy splits: (card_name, opp_id) → {copy_count: (w, l)}
+    copy_splits: dict[tuple, dict] = {}
+    for row in copy_split_rows:
+        key = (row[0], row[1])
+        copy_splits.setdefault(key, {})[row[2]] = (row[3], row[4])
+
     # 7. Compute per-card EV
     card_evs: list[CardEV] = []
     unscored: list[str]    = []
@@ -485,27 +590,43 @@ def compute_list_ev(raw_list: str, conn,
     for card_name in submitted_cards:
         rate      = inclusion.get(card_name)
         is_core   = rate is not None and rate >= CORE_THRESHOLD
+        submitted_n = submitted_counts.get(card_name, 1)
 
         matchups: list[CardMatchupEV] = []
         card_meta_ev = card_meta_var = 0.0
+        card_marginal_ev = 0.0
         card_scored_weight = 0.0
+        card_copy_modeled = False
 
         for opp_id, share in meta_shares.items():
-            key = (card_name, opp_id)
-            if key not in splits:
-                continue
-            w_with, l_with, w_without, l_without = splits[key]
             baseline = agg_wr_by_opp.get(opp_id)
-            mu = _card_matchup_ev(
-                card_name, opp_id, deck_names.get(opp_id),
-                w_with, l_with, w_without, l_without,
-                baseline_wr=baseline,
-            )
+            key      = (card_name, opp_id)
+            copy_buckets = copy_splits.get(key)
+
+            if copy_buckets:
+                mu = _card_copy_matchup_ev(
+                    card_name, opp_id, deck_names.get(opp_id),
+                    copy_buckets, submitted_n,
+                    baseline_wr=baseline,
+                )
+            elif key in splits:
+                w_with, l_with, w_without, l_without = splits[key]
+                mu = _card_matchup_ev(
+                    card_name, opp_id, deck_names.get(opp_id),
+                    w_with, l_with, w_without, l_without,
+                    baseline_wr=baseline,
+                )
+            else:
+                continue
+
             matchups.append(mu)
             if mu.scoreable:
                 card_meta_ev  += mu.delta   * share
                 card_meta_var += (mu.delta_std ** 2) * (share ** 2)
                 card_scored_weight += share
+                if mu.copy_modeled:
+                    card_marginal_ev  += mu.marginal_delta * share
+                    card_copy_modeled  = True
 
         if not matchups or card_scored_weight < 0.3:
             if not is_core:
@@ -521,6 +642,8 @@ def compute_list_ev(raw_list: str, conn,
             is_core=is_core,
             per_matchup=sorted(matchups, key=lambda m: -abs(m.delta)),
             scoreable=card_scored_weight >= 0.5,
+            marginal_ev=card_marginal_ev,
+            copy_modeled=card_copy_modeled,
         )
         card_evs.append(ev)
 
@@ -561,17 +684,22 @@ def compute_list_ev(raw_list: str, conn,
                 "avg_copies":      round(avg_copies.get(c.card_name) or 0, 1),
                 "is_core":         c.is_core,
                 "scoreable":       c.scoreable,
+                "copy_modeled":    c.copy_modeled,
+                "marginal_ev":     round(c.marginal_ev, 4),
                 "per_matchup": [
                     {
                         "opponent_deck_id":   m.opponent_deck_id,
                         "opponent_deck_name": m.opponent_deck_name,
-                        "delta":      round(m.delta, 4),
-                        "delta_std":  round(m.delta_std, 4),
-                        "wr_with":    round(m.wr_with, 4),
-                        "wr_without": round(m.wr_without, 4),
-                        "n_with":     m.n_with,
-                        "n_without":  m.n_without,
-                        "scoreable":  m.scoreable,
+                        "delta":        round(m.delta, 4),
+                        "delta_std":    round(m.delta_std, 4),
+                        "wr_with":      round(m.wr_with, 4),
+                        "wr_without":   round(m.wr_without, 4),
+                        "n_with":       m.n_with,
+                        "n_without":    m.n_without,
+                        "scoreable":    m.scoreable,
+                        "copy_modeled": m.copy_modeled,
+                        "marginal_delta": m.marginal_delta,
+                        "copy_curve":   m.copy_curve,
                     }
                     for m in c.per_matchup
                 ],

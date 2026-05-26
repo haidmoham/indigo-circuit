@@ -224,6 +224,26 @@
   .mu-bar { height: 4px; border-radius: 2px; min-width: 2px; }
   .no-data { font-size: .72rem; color: var(--muted); opacity: .6; }
 
+  /* ── Copy curve ──────────────────────────────────────────────────────────── */
+  .copy-curve-wrap {
+    margin: 2px 0 6px 8px;
+  }
+  .copy-curve-table {
+    border-collapse: collapse; font-size: .72rem;
+  }
+  .copy-curve-table th {
+    padding: .12rem .55rem; font-size: .6rem; font-weight: 800;
+    letter-spacing: .08em; text-transform: uppercase; color: var(--muted);
+    text-align: right; opacity: .7;
+  }
+  .copy-curve-table th:first-child { text-align: left; }
+  .copy-curve-table td {
+    padding: .12rem .55rem; text-align: right;
+    font-variant-numeric: tabular-nums; color: var(--muted);
+  }
+  .copy-curve-table td:first-child { text-align: left; }
+  .copy-curve-table tr.yours td { color: var(--violet); font-weight: 600; }
+
   /* ── Unscored pills ──────────────────────────────────────────────────────── */
   .unscored-wrap { display: flex; flex-wrap: wrap; gap: .4rem; margin-top: .5rem; }
   .unscored-pill {
@@ -294,7 +314,8 @@ Energy: 10
         weighted by how often each opponent archetype appears in the meta.<br><br>
         <strong>CORE</strong> cards (≥75% inclusion) contribute zero delta by definition.
         <strong>TECH</strong> slots (&lt;40%) are where the signal lives.<br><br>
-        EV measures running the card vs. not — copy count is not modeled separately.
+        When enough data exists, EV is computed at your exact copy count vs. zero copies,
+        and the copy curve shows win rate at each count in the matchup panel.
         The <em>×N avg</em> column shows the typical count players use when they include the card.
       </div>
     </div>
@@ -549,14 +570,38 @@ function cardRow(c, rowId, tier) {
   </div>`;
 }
 
+function copyCurveHtml(m, submittedCount) {
+  if (!m.copy_modeled || !m.copy_curve) return '';
+  const entries = Object.entries(m.copy_curve)
+    .map(([k, v]) => [parseInt(k), v])
+    .sort(([a], [b]) => a - b);
+  const rows = entries.map(([copies, d]) => {
+    const isYours = copies === submittedCount;
+    const n = d.w + d.l;
+    return `<tr class="${isYours ? 'yours' : ''}">
+      <td>×${copies}${isYours ? ' <span style="font-size:.6rem;opacity:.7">YOU</span>' : ''}</td>
+      <td>${pct(d.wr)}</td>
+      <td>${n}</td>
+    </tr>`;
+  }).join('');
+  return `<div class="copy-curve-wrap">
+    <table class="copy-curve-table">
+      <thead><tr><th style="text-align:left">Copies</th><th>WR</th><th>n</th></tr></thead>
+      <tbody>${rows}</tbody>
+    </table>
+  </div>`;
+}
+
 function matchupPanel(c, rowId) {
   if (!c.per_matchup || !c.per_matchup.length) return `<div class="matchup-panel" id="mu-${rowId}"></div>`;
 
-  const scored = c.per_matchup.filter(m => m.scoreable);
+  const scored    = c.per_matchup.filter(m => m.scoreable);
+  const withLabel = c.copy_modeled ? `W/ ×${c.submitted_count}` : 'W/ card';
   const rows = scored.slice(0, 12).map(m => {
     const d = m.delta;
     const col = d > 0 ? '#4ade80' : d < 0 ? '#f87171' : 'var(--muted)';
     const bw  = Math.min(Math.abs(d) * 300, 60);
+    const curve = copyCurveHtml(m, c.submitted_count);
     return `<div class="mu-row">
       <span>${esc(m.opponent_deck_name || m.opponent_deck_id)}</span>
       <span class="mu-wr">${pct(m.wr_without)}</span>
@@ -564,14 +609,14 @@ function matchupPanel(c, rowId) {
       <span class="mu-delta" style="color:${col}">${signPct(d)}</span>
       <span class="mu-n">${m.n_with}/${m.n_without}</span>
       <div class="mu-bar-wrap"><div class="mu-bar" style="width:${bw}px;background:${col}"></div></div>
-    </div>`;
+    </div>${curve}`;
   }).join('');
 
   return `<div class="matchup-panel" id="mu-${rowId}">
     <div class="mu-header">
       <span>Opponent</span>
       <span style="text-align:right">W/O card</span>
-      <span style="text-align:right">W/ card</span>
+      <span style="text-align:right">${withLabel}</span>
       <span style="text-align:right">Δ EV</span>
       <span style="text-align:right">n w/wo</span>
       <span></span>
