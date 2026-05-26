@@ -140,7 +140,7 @@
 
   .card-row {
     display: grid;
-    grid-template-columns: 160px 1fr 90px 90px 90px 18px;
+    grid-template-columns: 160px 1fr 90px 90px 110px 18px;
     gap: .5rem; align-items: center;
     padding: .55rem .75rem; border-radius: 8px; margin-bottom: 2px;
     cursor: pointer; transition: background .15s;
@@ -293,7 +293,9 @@ Energy: 10
         Win rates are estimated with a Beta prior (empirical Bayes), then
         weighted by how often each opponent archetype appears in the meta.<br><br>
         <strong>CORE</strong> cards (≥75% inclusion) contribute zero delta by definition.
-        <strong>TECH</strong> slots (&lt;40%) are where the signal lives.
+        <strong>TECH</strong> slots (&lt;40%) are where the signal lives.<br><br>
+        EV measures running the card vs. not — copy count is not modeled separately.
+        The <em>×N avg</em> column shows the typical count players use when they include the card.
       </div>
     </div>
   </div>
@@ -514,7 +516,7 @@ function cardSection(label, cards, tier) {
   let html = `<div class="card-section">
     <div class="section-label">${label}</div>
     <div class="card-row" style="font-size:.65rem;color:var(--muted);letter-spacing:.07em;text-transform:uppercase;cursor:default;padding:.3rem .75rem">
-      <span>Card</span><span>Meta EV</span><span class="col-num">EV %</span><span class="col-std">± std</span><span class="col-incl">inclusion</span><span></span>
+      <span>Card</span><span>Meta EV</span><span class="col-num">EV %</span><span class="col-std">± std</span><span class="col-incl">copies · inclusion</span><span></span>
     </div>`;
   cards.forEach((c, i) => {
     const rowId = `${tier}-${i}`;
@@ -542,7 +544,7 @@ function cardRow(c, rowId, tier) {
     </div>
     <span class="col-num" style="color:${color}">${signPct(ev)}</span>
     <span class="col-std">± ${pct(c.meta_ev_std * 1.645)}</span>
-    <span class="col-incl">${pct(c.inclusion_rate)}</span>
+    <span class="col-incl">${copiesLabel(c)}</span>
     <span class="col-caret">${hasMatchups ? '▾' : ''}</span>
   </div>`;
 }
@@ -662,5 +664,12 @@ function toggleArch(i) {
 const pct     = v => (v * 100).toFixed(1) + '%';
 const signPct = v => (v >= 0 ? '+' : '') + (v * 100).toFixed(1) + '%';
 const esc     = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+
+function copiesLabel(c) {
+  const you = c.submitted_count || 1;
+  const avg = c.avg_copies || 0;
+  const avgStr = avg ? `<span style="color:var(--muted)"> / ×${avg.toFixed(1)} avg</span>` : '';
+  return `<span>×${you}${avgStr}</span><span style="color:var(--muted);font-size:.68rem;margin-left:.3rem">${pct(c.inclusion_rate)}</span>`;
+}
 </script>
 {% endblock %}

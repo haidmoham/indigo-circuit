@@ -381,23 +381,32 @@ def compute_list_ev(raw_list: str, conn,
     meta_shares = _meta_shares(conn, source=source)
     deck_names  = _deck_names(conn, source=source)
 
-    # 4. Load inclusion rates for this archetype
+    # 4. Load inclusion rates + avg copies for this archetype
     if source == "both":
         inclusion_rows = conn.execute(f"""
-            SELECT card_name, AVG(inclusion_rate) as inclusion_rate
+            SELECT card_name,
+                   AVG(inclusion_rate)          as inclusion_rate,
+                   AVG(avg_count_when_included) as avg_copies
             FROM (
-                SELECT card_name, inclusion_rate FROM {MARTS}.card_archetype_stats WHERE deck_id = ?
+                SELECT card_name, inclusion_rate, avg_count_when_included
+                FROM {MARTS}.card_archetype_stats WHERE deck_id = ?
                 UNION ALL
-                SELECT card_name, inclusion_rate FROM {MARTS}.major_card_archetype_stats WHERE deck_id = ?
+                SELECT card_name, inclusion_rate, avg_count_when_included
+                FROM {MARTS}.major_card_archetype_stats WHERE deck_id = ?
             ) sub
             GROUP BY card_name
         """, (archetype_id, archetype_id)).fetchall()
     else:
         inclusion_rows = conn.execute(f"""
-            SELECT card_name, inclusion_rate FROM {t['stats']}
+            SELECT card_name, inclusion_rate, avg_count_when_included
+            FROM {t['stats']}
             WHERE deck_id = ?
         """, (archetype_id,)).fetchall()
-    inclusion = {r[0]: r[1] for r in inclusion_rows}
+    inclusion  = {r[0]: r[1] for r in inclusion_rows}
+    avg_copies = {r[0]: r[2] for r in inclusion_rows}
+
+    # submitted copy counts keyed by card name (last wins for dupes, which can't happen)
+    submitted_counts = {c["card_name"]: c["card_count"] for c in decklist}
 
     # 5. Archetype baseline WR (meta-weighted, no card filter)
     submitted_cards = list({c["card_name"] for c in decklist})
@@ -544,12 +553,14 @@ def compute_list_ev(raw_list: str, conn,
         "opponent_archetypes": opponent_archetypes,
         "cards": [
             {
-                "card_name":      c.card_name,
-                "meta_ev":        round(c.meta_ev, 4),
-                "meta_ev_std":    round(c.meta_ev_std, 4),
-                "inclusion_rate": round(c.inclusion_rate, 3),
-                "is_core":        c.is_core,
-                "scoreable":      c.scoreable,
+                "card_name":       c.card_name,
+                "meta_ev":         round(c.meta_ev, 4),
+                "meta_ev_std":     round(c.meta_ev_std, 4),
+                "inclusion_rate":  round(c.inclusion_rate, 3),
+                "submitted_count": submitted_counts.get(c.card_name, 1),
+                "avg_copies":      round(avg_copies.get(c.card_name) or 0, 1),
+                "is_core":         c.is_core,
+                "scoreable":       c.scoreable,
                 "per_matchup": [
                     {
                         "opponent_deck_id":   m.opponent_deck_id,
