@@ -5,6 +5,7 @@ Reads from DuckDB via DUCKDB_PATH environment variable.
 import json
 import os
 import re
+import shutil
 import threading
 import time
 from datetime import date
@@ -1286,14 +1287,33 @@ def _run_pipeline():
         return
 
     log.info("[pipeline] Starting nightly run")
-    # 1. Signal ALL workers to stop opening DuckDB connections immediately.
-    Path(_PIPELINE_SIGNAL).touch()
-    # 2. Kill any orphaned ingest scripts AND recycle the sibling gunicorn
-    #    worker that holds a DuckDB fd (gunicorn restarts it clean in ~1s).
-    _kill_db_holders(log)
-    # 3. Close any DuckDB fds held by THIS process so labs.py can write.
-    _close_own_duckdb_fds(log)
-    time.sleep(2)  # let gunicorn restart the recycled worker and OS release fds
+
+    # Shadow-copy the live DB so pipeline writes go to a separate file.
+    # Readers keep hitting the live file uninterrupted; the signal file
+    # is only held for <1 second during the final atomic rename.
+    shadow = DUCKDB_PATH + ".shadow"
+    using_shadow = False
+    if os.path.exists(DUCKDB_PATH):
+        try:
+            shutil.copy2(DUCKDB_PATH, shadow)
+            wal = DUCKDB_PATH + ".wal"
+            if os.path.exists(wal):
+                shutil.copy2(wal, shadow + ".wal")
+            using_shadow = True
+            log.info("[pipeline] Shadow DB ready — site stays live during pipeline")
+        except Exception as e:
+            log.error(f"[pipeline] Shadow copy failed ({e}) — falling back to live write")
+
+    if not using_shadow:
+        # First boot or copy failed: write directly to live path (old behaviour).
+        # Signal file needed for the full duration in this case.
+        Path(_PIPELINE_SIGNAL).touch()
+        _kill_db_holders(log)
+        _close_own_duckdb_fds(log)
+        time.sleep(2)
+
+    db_target = shadow if using_shadow else DUCKDB_PATH
+    env = {**os.environ, "DUCKDB_PATH": db_target}
 
     base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     steps = [
@@ -1303,15 +1323,19 @@ def _run_pipeline():
         ["bash",    "ingest/pipeline.sh", "--dbt-only"],
     ]
 
+    success = True
     try:
         # Per-step timeouts: load.py can take 60+ min on first seed
         timeouts = {"ingest/load.py": 7200, "ingest/labs.py": 1800,
                     "ingest/glicko.py": 600, "ingest/pipeline.sh": 600}
         for cmd in steps:
             step_timeout = timeouts.get(cmd[1], 1800)
-            for attempt in range(40):  # retry up to 39× (10 min) if DuckDB locked by orphaned process
+            for attempt in range(40):  # retry up to 39× if DuckDB locked
                 try:
-                    result = subprocess.run(cmd, cwd=base, capture_output=True, text=True, timeout=step_timeout)
+                    result = subprocess.run(
+                        cmd, cwd=base, env=env,
+                        capture_output=True, text=True, timeout=step_timeout,
+                    )
                     if result.returncode != 0:
                         if "Could not set lock" in result.stderr and attempt < 39:
                             log.warning(f"[pipeline] {cmd[1]} lock conflict, retrying in 15s (attempt {attempt+1})")
@@ -1319,25 +1343,46 @@ def _run_pipeline():
                             continue
                         out = (result.stdout + result.stderr)[-3000:]
                         log.error(f"[pipeline] {cmd[1]} failed:\n{out}")
+                        success = False
                     else:
                         log.info(f"[pipeline] {cmd[1]} done")
                     break
                 except Exception as e:
                     log.error(f"[pipeline] {cmd[1]} error: {e}")
+                    success = False
                     break
+            if not success:
+                break
     finally:
-        # Remove signal so workers resume reading DuckDB
-        try:
+        if using_shadow:
+            if success and os.path.exists(shadow):
+                # Atomic swap: brief signal file window (<1 second)
+                Path(_PIPELINE_SIGNAL).touch()
+                time.sleep(0.5)  # let any in-flight reads close their connections
+                try:
+                    os.replace(shadow, DUCKDB_PATH)
+                    log.info("[pipeline] Shadow DB swapped to live")
+                except Exception as e:
+                    log.error(f"[pipeline] Shadow swap failed: {e}")
+                finally:
+                    Path(_PIPELINE_SIGNAL).unlink(missing_ok=True)
+            else:
+                # Pipeline failed — discard shadow, live DB untouched
+                log.info("[pipeline] Pipeline failed — shadow discarded, live DB unchanged")
+                Path(shadow).unlink(missing_ok=True)
+                try:
+                    Path(shadow + ".wal").unlink(missing_ok=True)
+                except Exception:
+                    pass
+        else:
             Path(_PIPELINE_SIGNAL).unlink(missing_ok=True)
-        except Exception:
-            pass
+
         try:
             fcntl.flock(lf, fcntl.LOCK_UN)
             lf.close()
         except Exception:
             pass
 
-    # Bust cache so dashboard reflects fresh data immediately
     bust_cache()
     log.info("[pipeline] Complete — cache cleared")
 
