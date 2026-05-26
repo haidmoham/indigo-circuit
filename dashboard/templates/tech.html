@@ -12,6 +12,24 @@
     </p>
   </div>
   <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
+    <!-- Source toggle -->
+    <div id="source-toggle"
+         style="display:flex;background:var(--surface);border:1px solid var(--border);
+                border-radius:8px;overflow:hidden;font-size:0.72rem;font-weight:800;
+                letter-spacing:0.06em;text-transform:uppercase">
+      <button data-source="online"  onclick="setSource('online')"
+        style="padding:0.38rem 0.75rem;cursor:pointer;border:none;background:var(--violet);
+               color:#fff;font-family:inherit;font-size:inherit;font-weight:inherit;
+               letter-spacing:inherit;text-transform:inherit">Online</button>
+      <button data-source="majors"  onclick="setSource('majors')"
+        style="padding:0.38rem 0.75rem;cursor:pointer;border:none;background:transparent;
+               color:var(--muted);font-family:inherit;font-size:inherit;font-weight:inherit;
+               letter-spacing:inherit;text-transform:inherit">Majors</button>
+      <button data-source="both"    onclick="setSource('both')"
+        style="padding:0.38rem 0.75rem;cursor:pointer;border:none;background:transparent;
+               color:var(--muted);font-family:inherit;font-size:inherit;font-weight:inherit;
+               letter-spacing:inherit;text-transform:inherit">Both</button>
+    </div>
     <!-- Tier legend -->
     <div style="display:flex;gap:0.5rem;align-items:center">
       <span style="background:rgba(245,158,11,0.15);color:#f59e0b;border:1px solid rgba(245,158,11,0.3);
@@ -94,9 +112,23 @@
 
 {% block scripts %}
 let currentDeckId  = '';
+let currentSource  = 'online';   // online | majors | both
 let currentTheme   = { c: 'var(--violet)' };
-const _evCache     = {};   // key: "deckId:cardName"
+const _evCache     = {};   // key: "deckId:cardName:source"
 let _rowCounter    = 0;    // unique IDs across all rendered groups
+
+function setSource(src) {
+  currentSource = src;
+  // Update button styles
+  document.querySelectorAll('#source-toggle button').forEach(btn => {
+    const active = btn.dataset.source === src;
+    btn.style.background = active ? 'var(--violet)' : 'transparent';
+    btn.style.color = active ? '#fff' : 'var(--muted)';
+  });
+  // Reload deck list and current deck if one is selected
+  loadDecks();
+  if (currentDeckId) loadDeck(currentDeckId, document.getElementById('deck-search').value);
+}
 
 // ── Tier config ──────────────────────────────────────────────────────────────
 function getTier(pct) {
@@ -159,7 +191,7 @@ function toggleEV(rowId, cardName) {
   cardRow.dataset.open = '1';
   evRow.style.display  = '';
 
-  const cacheKey = currentDeckId + ':' + cardName;
+  const cacheKey = currentDeckId + ':' + cardName + ':' + currentSource;
   if (_evCache[cacheKey]) {
     renderEV(document.getElementById('ev-content-' + rowId), _evCache[cacheKey], cardName);
     return;
@@ -170,7 +202,7 @@ function toggleEV(rowId, cardName) {
        <div class="spinner" style="display:inline-block;width:12px;height:12px;
             margin-right:0.4rem;vertical-align:middle"></div>Loading matchup data…</div>`;
 
-  fetch(`/api/tech/${encodeURIComponent(currentDeckId)}/card-ev?card=${encodeURIComponent(cardName)}`)
+  fetch(`/api/tech/${encodeURIComponent(currentDeckId)}/card-ev?card=${encodeURIComponent(cardName)}&source=${currentSource}`)
     .then(r => r.json())
     .then(data => {
       _evCache[cacheKey] = data;
@@ -397,7 +429,7 @@ function selectDeck(id, label) {
 }
 
 async function loadDecks() {
-  const decks = await fetch('/api/tech/decks').then(r => r.json());
+  const decks = await fetch('/api/tech/decks?source=' + currentSource).then(r => r.json());
   _allDecks = decks.map(d => {
     const id   = d.DECK_ID     || d.deck_id     || '';
     const name = d.DECK_NAME   || d.deck_name   || id;
@@ -444,7 +476,7 @@ async function loadDeck(deckId, label) {
   document.getElementById('deck-meta').style.display    = 'none';
   document.getElementById('loading').style.display      = 'flex';
 
-  const cards = await fetch(`/api/tech/${encodeURIComponent(deckId)}`).then(r => r.json());
+  const cards = await fetch(`/api/tech/${encodeURIComponent(deckId)}?source=${currentSource}`).then(r => r.json());
 
   document.getElementById('loading').style.display = 'none';
 

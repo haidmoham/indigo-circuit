@@ -55,3 +55,21 @@ sources:
         columns:
           - name: labs_tournament_id
             tests: [not_null]
+
+      - name: major_matches
+        description: Round-by-round match results for top-cut players at major tournaments.
+        columns:
+          - name: labs_tournament_id
+            tests: [not_null]
+          - name: player_id
+            tests: [not_null]
+
+      - name: major_decklists
+        description: Card-level decklists for top-cut players at major tournaments.
+        columns:
+          - name: labs_tournament_id
+            tests: [not_null]
+          - name: player_id
+            tests: [not_null]
+          - name: card_name
+            tests: [not_null]

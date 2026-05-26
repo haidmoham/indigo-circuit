@@ -393,125 +393,244 @@ def online_archetype_aces():
 
 @app.get("/api/tech/decks")
 def tech_decks():
+    source = request.args.get("source", "online")  # online | majors | both
+
     def _fetch():
-        return query(
-            f"""
-            SELECT cas.deck_id,
-                   MAX(pah.deck_name) AS deck_name,
-                   MAX(cas.total_lists) AS total_lists
-            FROM {MARTS}.CARD_ARCHETYPE_STATS cas
-            LEFT JOIN {MARTS}.PLAYER_ARCHETYPE_HISTORY pah
-              ON cas.deck_id = pah.deck_id
-            GROUP BY cas.deck_id
-            HAVING MAX(cas.total_lists) >= 3
-            ORDER BY MAX(cas.total_lists) DESC
-            LIMIT 60
-            """
-        )
-    return jsonify(cached("tech_decks", _fetch))
+        if source == "majors":
+            # Decks that have major-tournament decklist data
+            return query(
+                f"""
+                SELECT mca.deck_id,
+                       MAX(ms.deck_name) AS deck_name,
+                       MAX(mca.total_lists) AS total_lists
+                FROM {MARTS}.MAJOR_CARD_ARCHETYPE_STATS mca
+                LEFT JOIN raw.major_standings ms ON mca.deck_id = ms.deck_id
+                GROUP BY mca.deck_id
+                HAVING MAX(mca.total_lists) >= 3
+                ORDER BY MAX(mca.total_lists) DESC
+                LIMIT 60
+                """
+            )
+        elif source == "both":
+            return query(
+                f"""
+                SELECT deck_id, deck_name, total_lists FROM (
+                    SELECT cas.deck_id,
+                           MAX(pah.deck_name) AS deck_name,
+                           MAX(cas.total_lists) AS total_lists
+                    FROM {MARTS}.CARD_ARCHETYPE_STATS cas
+                    LEFT JOIN {MARTS}.PLAYER_ARCHETYPE_HISTORY pah ON cas.deck_id = pah.deck_id
+                    GROUP BY cas.deck_id HAVING MAX(cas.total_lists) >= 3
+                    UNION
+                    SELECT mca.deck_id,
+                           MAX(ms.deck_name) AS deck_name,
+                           MAX(mca.total_lists) AS total_lists
+                    FROM {MARTS}.MAJOR_CARD_ARCHETYPE_STATS mca
+                    LEFT JOIN raw.major_standings ms ON mca.deck_id = ms.deck_id
+                    GROUP BY mca.deck_id HAVING MAX(mca.total_lists) >= 3
+                ) combined
+                ORDER BY total_lists DESC LIMIT 60
+                """
+            )
+        else:  # online (default)
+            return query(
+                f"""
+                SELECT cas.deck_id,
+                       MAX(pah.deck_name) AS deck_name,
+                       MAX(cas.total_lists) AS total_lists
+                FROM {MARTS}.CARD_ARCHETYPE_STATS cas
+                LEFT JOIN {MARTS}.PLAYER_ARCHETYPE_HISTORY pah ON cas.deck_id = pah.deck_id
+                GROUP BY cas.deck_id
+                HAVING MAX(cas.total_lists) >= 3
+                ORDER BY MAX(cas.total_lists) DESC
+                LIMIT 60
+                """
+            )
+
+    return jsonify(cached(f"tech_decks:{source}", _fetch))
 
 
 @app.get("/api/tech/<path:deck_id>")
 def tech_cards(deck_id):
-    def _fetch():
-        return query(
+    source = request.args.get("source", "online")
+
+    def _build_query(stat_table):
+        return (
             f"""
             SELECT card_category,
                    card_name,
                    card_set,
                    lists_with_card,
                    total_lists,
-                   round(inclusion_rate * 100, 1)       AS inclusion_pct,
-                   round(avg_count_when_included, 2)     AS avg_copies,
+                   round(inclusion_rate * 100, 1)   AS inclusion_pct,
+                   round(avg_count_when_included, 2) AS avg_copies,
                    is_tech_card
-            FROM {MARTS}.CARD_ARCHETYPE_STATS
+            FROM {stat_table}
             WHERE deck_id = ?
-            ORDER BY card_category,
-                     inclusion_rate DESC
+            ORDER BY card_category, inclusion_rate DESC
             """,
             (deck_id,),
         )
-    return jsonify(cached(f"tech:{deck_id}", _fetch))
+
+    def _fetch():
+        if source == "majors":
+            sql, params = _build_query(f"{MARTS}.MAJOR_CARD_ARCHETYPE_STATS")
+            return query(sql, params)
+        elif source == "both":
+            # Union both tables, keep highest inclusion_rate per card
+            return query(
+                f"""
+                SELECT card_category, card_name, card_set,
+                       SUM(lists_with_card) AS lists_with_card,
+                       SUM(total_lists)     AS total_lists,
+                       ROUND(SUM(lists_with_card)::float / SUM(total_lists) * 100, 1) AS inclusion_pct,
+                       ROUND(AVG(avg_count_when_included), 2) AS avg_copies,
+                       SUM(lists_with_card)::float / SUM(total_lists) < 0.30 AS is_tech_card
+                FROM (
+                    SELECT card_category, card_name, card_set,
+                           lists_with_card, total_lists, avg_count_when_included
+                    FROM {MARTS}.CARD_ARCHETYPE_STATS WHERE deck_id = ?
+                    UNION ALL
+                    SELECT card_category, card_name, card_set,
+                           lists_with_card, total_lists, avg_count_when_included
+                    FROM {MARTS}.MAJOR_CARD_ARCHETYPE_STATS WHERE deck_id = ?
+                ) combined
+                GROUP BY card_category, card_name, card_set
+                ORDER BY card_category, inclusion_pct DESC
+                """,
+                (deck_id, deck_id),
+            )
+        else:
+            sql, params = _build_query(f"{MARTS}.CARD_ARCHETYPE_STATS")
+            return query(sql, params)
+
+    return jsonify(cached(f"tech:{deck_id}:{source}", _fetch))
 
 
 @app.get("/api/tech/<path:deck_id>/card-ev")
 def tech_card_ev(deck_id):
     """Win-rate with vs without a specific card, broken down by opponent archetype."""
     card_name = request.args.get("card", "").strip()
+    source    = request.args.get("source", "online")
     if not card_name:
         return jsonify({"error": "card param required"}), 400
 
     def _fetch():
-        rows = query(
-            """
-            WITH match_rows AS (
-                SELECT m.tournament_id, m.player1 AS our, m.player2 AS opp,
-                    CASE WHEN m.winner = m.player1 THEN true
-                         WHEN m.winner = m.player2 THEN false
-                         ELSE NULL END AS won
-                FROM raw.matches m
-                WHERE m.winner NOT IN ('0','-1')
-                  AND m.player1 IS NOT NULL AND m.player2 IS NOT NULL
-                UNION ALL
-                SELECT m.tournament_id, m.player2, m.player1,
-                    CASE WHEN m.winner = m.player2 THEN true
-                         WHEN m.winner = m.player1 THEN false
-                         ELSE NULL END
-                FROM raw.matches m
-                WHERE m.winner NOT IN ('0','-1')
-                  AND m.player1 IS NOT NULL AND m.player2 IS NOT NULL
-            ),
-            with_decks AS (
-                SELECT mr.tournament_id, mr.our, mr.opp, mr.won,
-                       s2.deck_id AS opp_deck, s2.deck_name AS opp_deck_name
-                FROM match_rows mr
-                JOIN raw.standings s1
-                  ON mr.tournament_id = s1.tournament_id AND mr.our = s1.player_username
-                 AND s1.deck_id = ?
-                JOIN raw.standings s2
-                  ON mr.tournament_id = s2.tournament_id AND mr.opp = s2.player_username
-                WHERE mr.won IS NOT NULL AND s2.deck_id IS NOT NULL AND s2.deck_id != 'other'
-            ),
-            with_card AS (
-                SELECT wd.*,
-                       COALESCE(d.card_count, 0) > 0 AS has_card
-                FROM with_decks wd
-                LEFT JOIN raw.decklists d
-                  ON wd.tournament_id = d.tournament_id
-                 AND wd.our = d.player_username
-                 AND d.card_name = ?
-            ),
-            agg AS (
-                SELECT opp_deck, MAX(opp_deck_name) AS opp_deck_name, has_card,
-                       COUNT(*) AS n,
-                       ROUND(AVG(CASE WHEN won THEN 1.0 ELSE 0.0 END) * 100, 1) AS wr
-                FROM with_card
-                GROUP BY opp_deck, has_card
-            ),
-            pivoted AS (
-                SELECT
-                    opp_deck,
-                    MAX(opp_deck_name) AS opp_deck_name,
-                    MAX(CASE WHEN NOT has_card THEN n  END) AS n_without,
-                    MAX(CASE WHEN NOT has_card THEN wr END) AS wr_without,
-                    MAX(CASE WHEN has_card     THEN n  END) AS n_with,
-                    MAX(CASE WHEN has_card     THEN wr END) AS wr_with,
-                    SUM(n) AS total_n
-                FROM agg
-                GROUP BY opp_deck
-                HAVING SUM(n) >= 10
+        if source == "majors":
+            rows = query(
+                """
+                WITH match_rows AS (
+                    SELECT mm.labs_tournament_id AS tid, mm.player_id AS our,
+                           mm.result,
+                           -- Resolve opponent deck: prefer stored deck_id, fall back to name join
+                           COALESCE(mm.opponent_deck_id, ms_opp.deck_id) AS opp_deck,
+                           COALESCE(mm.opponent_deck_name,
+                                    ms_opp.deck_name) AS opp_deck_name
+                    FROM raw.major_matches mm
+                    JOIN raw.major_standings ms_our
+                      ON mm.labs_tournament_id = ms_our.labs_tournament_id
+                     AND mm.player_id = ms_our.player_id
+                     AND ms_our.deck_id = ?
+                    LEFT JOIN raw.major_standings ms_opp
+                      ON mm.labs_tournament_id = ms_opp.labs_tournament_id
+                     AND mm.opponent_name = ms_opp.player_name
+                    WHERE mm.result IN ('Win', 'Loss')
+                      AND COALESCE(mm.opponent_deck_id, ms_opp.deck_id) IS NOT NULL
+                      AND COALESCE(mm.opponent_deck_id, ms_opp.deck_id) != 'other'
+                ),
+                with_card AS (
+                    SELECT mr.*,
+                           COALESCE(md.card_count, 0) > 0 AS has_card
+                    FROM match_rows mr
+                    LEFT JOIN raw.major_decklists md
+                      ON mr.tid = md.labs_tournament_id
+                     AND mr.our = md.player_id
+                     AND md.card_name = ?
+                ),
+                agg AS (
+                    SELECT opp_deck, MAX(opp_deck_name) AS opp_deck_name, has_card,
+                           COUNT(*) AS n,
+                           ROUND(AVG(CASE WHEN result='Win' THEN 1.0 ELSE 0.0 END)*100,1) AS wr
+                    FROM with_card GROUP BY opp_deck, has_card
+                ),
+                pivoted AS (
+                    SELECT opp_deck, MAX(opp_deck_name) AS opp_deck_name,
+                           MAX(CASE WHEN NOT has_card THEN n  END) AS n_without,
+                           MAX(CASE WHEN NOT has_card THEN wr END) AS wr_without,
+                           MAX(CASE WHEN has_card     THEN n  END) AS n_with,
+                           MAX(CASE WHEN has_card     THEN wr END) AS wr_with,
+                           SUM(n) AS total_n
+                    FROM agg GROUP BY opp_deck HAVING SUM(n) >= 5
+                )
+                SELECT opp_deck, opp_deck_name, n_without, wr_without, n_with, wr_with,
+                       ROUND(COALESCE(wr_with,wr_without) - COALESCE(wr_without,wr_with),1) AS delta
+                FROM pivoted ORDER BY total_n DESC LIMIT 15
+                """,
+                (deck_id, card_name),
             )
-            SELECT opp_deck, opp_deck_name, n_without, wr_without, n_with, wr_with,
-                   ROUND(COALESCE(wr_with, wr_without) - COALESCE(wr_without, wr_with), 1) AS delta
-            FROM pivoted
-            ORDER BY total_n DESC
-            LIMIT 15
-            """,
-            (deck_id, card_name),
-        )
+        else:
+            rows = query(
+                """
+                WITH match_rows AS (
+                    SELECT m.tournament_id, m.player1 AS our, m.player2 AS opp,
+                        CASE WHEN m.winner = m.player1 THEN true
+                             WHEN m.winner = m.player2 THEN false
+                             ELSE NULL END AS won
+                    FROM raw.matches m
+                    WHERE m.winner NOT IN ('0','-1')
+                      AND m.player1 IS NOT NULL AND m.player2 IS NOT NULL
+                    UNION ALL
+                    SELECT m.tournament_id, m.player2, m.player1,
+                        CASE WHEN m.winner = m.player2 THEN true
+                             WHEN m.winner = m.player1 THEN false
+                             ELSE NULL END
+                    FROM raw.matches m
+                    WHERE m.winner NOT IN ('0','-1')
+                      AND m.player1 IS NOT NULL AND m.player2 IS NOT NULL
+                ),
+                with_decks AS (
+                    SELECT mr.tournament_id, mr.our, mr.opp, mr.won,
+                           s2.deck_id AS opp_deck, s2.deck_name AS opp_deck_name
+                    FROM match_rows mr
+                    JOIN raw.standings s1
+                      ON mr.tournament_id = s1.tournament_id AND mr.our = s1.player_username
+                     AND s1.deck_id = ?
+                    JOIN raw.standings s2
+                      ON mr.tournament_id = s2.tournament_id AND mr.opp = s2.player_username
+                    WHERE mr.won IS NOT NULL AND s2.deck_id IS NOT NULL AND s2.deck_id != 'other'
+                ),
+                with_card AS (
+                    SELECT wd.*, COALESCE(d.card_count, 0) > 0 AS has_card
+                    FROM with_decks wd
+                    LEFT JOIN raw.decklists d
+                      ON wd.tournament_id = d.tournament_id
+                     AND wd.our = d.player_username
+                     AND d.card_name = ?
+                ),
+                agg AS (
+                    SELECT opp_deck, MAX(opp_deck_name) AS opp_deck_name, has_card,
+                           COUNT(*) AS n,
+                           ROUND(AVG(CASE WHEN won THEN 1.0 ELSE 0.0 END)*100,1) AS wr
+                    FROM with_card GROUP BY opp_deck, has_card
+                ),
+                pivoted AS (
+                    SELECT opp_deck, MAX(opp_deck_name) AS opp_deck_name,
+                           MAX(CASE WHEN NOT has_card THEN n  END) AS n_without,
+                           MAX(CASE WHEN NOT has_card THEN wr END) AS wr_without,
+                           MAX(CASE WHEN has_card     THEN n  END) AS n_with,
+                           MAX(CASE WHEN has_card     THEN wr END) AS wr_with,
+                           SUM(n) AS total_n
+                    FROM agg GROUP BY opp_deck HAVING SUM(n) >= 10
+                )
+                SELECT opp_deck, opp_deck_name, n_without, wr_without, n_with, wr_with,
+                       ROUND(COALESCE(wr_with,wr_without) - COALESCE(wr_without,wr_with),1) AS delta
+                FROM pivoted ORDER BY total_n DESC LIMIT 15
+                """,
+                (deck_id, card_name),
+            )
         return rows
 
-    return jsonify(cached(f"card-ev:{deck_id}:{card_name}", _fetch))
+    return jsonify(cached(f"card-ev:{deck_id}:{card_name}:{source}", _fetch))
 
 
 @app.get("/api/player/<username>/vs/<opponent>")
