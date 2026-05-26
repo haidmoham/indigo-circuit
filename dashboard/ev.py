@@ -13,6 +13,7 @@ Entry point: compute_list_ev(raw_list, conn, source)
 """
 from __future__ import annotations
 
+import os
 import re
 from dataclasses import dataclass, field
 from typing import Optional
@@ -21,6 +22,24 @@ DEFAULT_PRIOR_STRENGTH: int = 30   # phantom match count; raise = more conservat
 MIN_SCOREABLE_MATCHES:  int = 20   # min real matches on either side to trust a delta
 CORE_THRESHOLD:         float = 0.75  # inclusion_rate >= this → CORE (skip for EV)
 MIN_ARCHETYPE_LISTS:    int = 50   # min lists for archetype to be in meta shares
+
+MARTS = os.environ.get("DBT_MARTS_SCHEMA", "dbt_dev_marts")
+
+
+def _tables(source: str) -> dict:
+    """Return table names for a given source: 'online' | 'majors' | 'both'."""
+    if source == "majors":
+        return {
+            "stats":     f"{MARTS}.major_card_archetype_stats",
+            "splits":    f"{MARTS}.major_card_match_splits",
+            "standings": "raw.major_standings",
+        }
+    # 'online' and 'both' start from online tables; 'both' adds major tables via UNION
+    return {
+        "stats":     f"{MARTS}.card_archetype_stats",
+        "splits":    f"{MARTS}.card_match_splits",
+        "standings": "raw.standings",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -190,29 +209,36 @@ def parse_ptcglive(raw: str) -> list[dict]:
 # Archetype detection
 # ---------------------------------------------------------------------------
 
-def detect_archetype(decklist: list[dict], conn) -> Optional[tuple[str, str, float]]:
+def detect_archetype(decklist: list[dict], conn,
+                      source: str = "online") -> Optional[tuple[str, str, float]]:
     """
     Score submitted list against all archetypes by Pokemon CORE card overlap.
     Uses only pokemon-category CORE cards so trainer variation doesn't tank confidence.
     Returns (deck_id, deck_name, confidence_0_to_1) or None.
     """
-    # Only use pokemon cards from the submitted list for matching
+    t = _tables(source)
+
     submitted_pokemon = {
         c["card_name"] for c in decklist
-        if c.get("card_category") in ("pokemon", None)  # None = no category parsed
+        if c.get("card_category") in ("pokemon", None)
     }
-    # Fallback: if no category info, use all cards
     if not submitted_pokemon:
         submitted_pokemon = {c["card_name"] for c in decklist}
 
-    rows = conn.execute("""
-        SELECT deck_id, card_name
-        FROM dbt_dev_marts.card_archetype_stats
-        WHERE inclusion_rate >= ?
-          AND card_category = 'pokemon'
-    """, (CORE_THRESHOLD,)).fetchall()
+    if source == "both":
+        rows = conn.execute(f"""
+            SELECT deck_id, card_name FROM {MARTS}.card_archetype_stats
+            WHERE inclusion_rate >= ? AND card_category = 'pokemon'
+            UNION
+            SELECT deck_id, card_name FROM {MARTS}.major_card_archetype_stats
+            WHERE inclusion_rate >= ? AND card_category = 'pokemon'
+        """, (CORE_THRESHOLD, CORE_THRESHOLD)).fetchall()
+    else:
+        rows = conn.execute(f"""
+            SELECT deck_id, card_name FROM {t['stats']}
+            WHERE inclusion_rate >= ? AND card_category = 'pokemon'
+        """, (CORE_THRESHOLD,)).fetchall()
 
-    # Group core pokemon cards per archetype
     cores: dict[str, set] = {}
     for deck_id, card_name in rows:
         cores.setdefault(deck_id, set()).add(card_name)
@@ -228,10 +254,21 @@ def detect_archetype(decklist: list[dict], conn) -> Optional[tuple[str, str, flo
     if best_id is None or best_score < 0.4:
         return None
 
-    name_row = conn.execute("""
-        SELECT deck_name FROM raw.standings
-        WHERE deck_id = ? AND deck_name IS NOT NULL LIMIT 1
-    """, (best_id,)).fetchone()
+    if source == "both":
+        name_row = conn.execute("""
+            SELECT deck_name FROM raw.standings
+            WHERE deck_id = ? AND deck_name IS NOT NULL LIMIT 1
+        """, (best_id,)).fetchone()
+        if not name_row:
+            name_row = conn.execute("""
+                SELECT deck_name FROM raw.major_standings
+                WHERE deck_id = ? AND deck_name IS NOT NULL LIMIT 1
+            """, (best_id,)).fetchone()
+    else:
+        name_row = conn.execute(f"""
+            SELECT deck_name FROM {t['standings']}
+            WHERE deck_id = ? AND deck_name IS NOT NULL LIMIT 1
+        """, (best_id,)).fetchone()
     deck_name = name_row[0] if name_row else best_id
 
     return best_id, deck_name, round(best_score, 3)
@@ -241,15 +278,28 @@ def detect_archetype(decklist: list[dict], conn) -> Optional[tuple[str, str, flo
 # Meta shares
 # ---------------------------------------------------------------------------
 
-def _meta_shares(conn) -> dict[str, float]:
-    """Fraction of online tournament lists per archetype."""
-    rows = conn.execute("""
-        SELECT deck_id, COUNT(*) as n
-        FROM raw.standings
-        WHERE deck_id IS NOT NULL
-        GROUP BY deck_id
-        HAVING COUNT(*) >= ?
-    """, (MIN_ARCHETYPE_LISTS,)).fetchall()
+def _meta_shares(conn, source: str = "online") -> dict[str, float]:
+    """Fraction of tournament lists per archetype for the given source."""
+    if source == "both":
+        rows = conn.execute("""
+            SELECT deck_id, COUNT(*) as n
+            FROM (
+                SELECT deck_id FROM raw.standings WHERE deck_id IS NOT NULL
+                UNION ALL
+                SELECT deck_id FROM raw.major_standings WHERE deck_id IS NOT NULL
+            ) sub
+            GROUP BY deck_id
+            HAVING COUNT(*) >= ?
+        """, (MIN_ARCHETYPE_LISTS,)).fetchall()
+    else:
+        t = _tables(source)
+        rows = conn.execute(f"""
+            SELECT deck_id, COUNT(*) as n
+            FROM {t['standings']}
+            WHERE deck_id IS NOT NULL
+            GROUP BY deck_id
+            HAVING COUNT(*) >= ?
+        """, (MIN_ARCHETYPE_LISTS,)).fetchall()
 
     total = sum(r[1] for r in rows)
     if total == 0:
@@ -257,13 +307,22 @@ def _meta_shares(conn) -> dict[str, float]:
     return {r[0]: r[1] / total for r in rows}
 
 
-def _deck_names(conn) -> dict[str, str]:
-    """deck_id → deck_name lookup from standings."""
-    rows = conn.execute("""
-        SELECT DISTINCT deck_id, deck_name
-        FROM raw.standings
-        WHERE deck_id IS NOT NULL AND deck_name IS NOT NULL
-    """).fetchall()
+def _deck_names(conn, source: str = "online") -> dict[str, str]:
+    """deck_id → deck_name lookup."""
+    if source == "both":
+        rows = conn.execute("""
+            SELECT deck_id, deck_name FROM raw.standings
+            WHERE deck_id IS NOT NULL AND deck_name IS NOT NULL
+            UNION
+            SELECT deck_id, deck_name FROM raw.major_standings
+            WHERE deck_id IS NOT NULL AND deck_name IS NOT NULL
+        """).fetchall()
+    else:
+        t = _tables(source)
+        rows = conn.execute(f"""
+            SELECT DISTINCT deck_id, deck_name FROM {t['standings']}
+            WHERE deck_id IS NOT NULL AND deck_name IS NOT NULL
+        """).fetchall()
     return {r[0]: r[1] for r in rows}
 
 
@@ -272,7 +331,8 @@ def _deck_names(conn) -> dict[str, str]:
 # ---------------------------------------------------------------------------
 
 def compute_list_ev(raw_list: str, conn,
-                    archetype_id: Optional[str] = None) -> dict:
+                    archetype_id: Optional[str] = None,
+                    source: str = "online") -> dict:
     """
     Full pipeline: parse → detect → query splits → Bayesian EV → return.
 
@@ -289,42 +349,86 @@ def compute_list_ev(raw_list: str, conn,
     if not decklist:
         return {"error": "Could not parse decklist — paste PTCG Live export format"}
 
+    t = _tables(source)
+
     # 2. Detect or accept provided archetype
     confidence = 1.0
     arch_name  = archetype_id
     if archetype_id:
-        row = conn.execute("""
-            SELECT deck_name FROM raw.standings
-            WHERE deck_id = ? AND deck_name IS NOT NULL LIMIT 1
-        """, (archetype_id,)).fetchone()
+        if source == "both":
+            row = conn.execute("""
+                SELECT deck_name FROM raw.standings
+                WHERE deck_id = ? AND deck_name IS NOT NULL LIMIT 1
+            """, (archetype_id,)).fetchone()
+            if not row:
+                row = conn.execute("""
+                    SELECT deck_name FROM raw.major_standings
+                    WHERE deck_id = ? AND deck_name IS NOT NULL LIMIT 1
+                """, (archetype_id,)).fetchone()
+        else:
+            row = conn.execute(f"""
+                SELECT deck_name FROM {t['standings']}
+                WHERE deck_id = ? AND deck_name IS NOT NULL LIMIT 1
+            """, (archetype_id,)).fetchone()
         arch_name = row[0] if row else archetype_id
     else:
-        detected = detect_archetype(decklist, conn)
+        detected = detect_archetype(decklist, conn, source=source)
         if not detected:
             return {"error": "Could not identify archetype — try selecting manually"}
         archetype_id, arch_name, confidence = detected
 
     # 3. Load meta shares + deck names
-    meta_shares = _meta_shares(conn)
-    deck_names  = _deck_names(conn)
+    meta_shares = _meta_shares(conn, source=source)
+    deck_names  = _deck_names(conn, source=source)
 
     # 4. Load inclusion rates for this archetype
-    inclusion_rows = conn.execute("""
-        SELECT card_name, inclusion_rate
-        FROM dbt_dev_marts.card_archetype_stats
-        WHERE deck_id = ?
-    """, (archetype_id,)).fetchall()
+    if source == "both":
+        inclusion_rows = conn.execute(f"""
+            SELECT card_name, AVG(inclusion_rate) as inclusion_rate
+            FROM (
+                SELECT card_name, inclusion_rate FROM {MARTS}.card_archetype_stats WHERE deck_id = ?
+                UNION ALL
+                SELECT card_name, inclusion_rate FROM {MARTS}.major_card_archetype_stats WHERE deck_id = ?
+            ) sub
+            GROUP BY card_name
+        """, (archetype_id, archetype_id)).fetchall()
+    else:
+        inclusion_rows = conn.execute(f"""
+            SELECT card_name, inclusion_rate FROM {t['stats']}
+            WHERE deck_id = ?
+        """, (archetype_id,)).fetchall()
     inclusion = {r[0]: r[1] for r in inclusion_rows}
 
     # 5. Archetype baseline WR (meta-weighted, no card filter)
-    baseline_rows = conn.execute("""
-        SELECT opponent_deck_id,
-               SUM(w_with + w_without)::float /
-               NULLIF(SUM(w_with + l_with + w_without + l_without), 0) as agg_wr
-        FROM dbt_dev_marts.card_match_splits
-        WHERE deck_id = ?
-        GROUP BY opponent_deck_id
-    """, (archetype_id,)).fetchall()
+    submitted_cards = list({c["card_name"] for c in decklist})
+    if not submitted_cards:
+        return {"error": "No cards found in decklist"}
+
+    placeholders = ",".join("?" * len(submitted_cards))
+
+    if source == "both":
+        baseline_rows = conn.execute(f"""
+            SELECT opponent_deck_id,
+                   SUM(w_with + w_without)::float /
+                   NULLIF(SUM(w_with + l_with + w_without + l_without), 0) as agg_wr
+            FROM (
+                SELECT opponent_deck_id, w_with, l_with, w_without, l_without
+                FROM {MARTS}.card_match_splits WHERE deck_id = ?
+                UNION ALL
+                SELECT opponent_deck_id, w_with, l_with, w_without, l_without
+                FROM {MARTS}.major_card_match_splits WHERE deck_id = ?
+            ) sub
+            GROUP BY opponent_deck_id
+        """, (archetype_id, archetype_id)).fetchall()
+    else:
+        baseline_rows = conn.execute(f"""
+            SELECT opponent_deck_id,
+                   SUM(w_with + w_without)::float /
+                   NULLIF(SUM(w_with + l_with + w_without + l_without), 0) as agg_wr
+            FROM {t['splits']}
+            WHERE deck_id = ?
+            GROUP BY opponent_deck_id
+        """, (archetype_id,)).fetchall()
     agg_wr_by_opp = {r[0]: r[1] for r in baseline_rows}
 
     baseline_wr = sum(
@@ -333,18 +437,30 @@ def compute_list_ev(raw_list: str, conn,
     ) or 0.5
 
     # 6. Load splits for all cards in submitted list
-    submitted_cards = list({c["card_name"] for c in decklist})
-    if not submitted_cards:
-        return {"error": "No cards found in decklist"}
-
-    placeholders = ",".join("?" * len(submitted_cards))
-    split_rows = conn.execute(f"""
-        SELECT card_name, opponent_deck_id,
-               w_with, l_with, w_without, l_without
-        FROM dbt_dev_marts.card_match_splits
-        WHERE deck_id = ?
-          AND card_name IN ({placeholders})
-    """, [archetype_id] + submitted_cards).fetchall()
+    if source == "both":
+        split_rows = conn.execute(f"""
+            SELECT card_name, opponent_deck_id,
+                   SUM(w_with) as w_with, SUM(l_with) as l_with,
+                   SUM(w_without) as w_without, SUM(l_without) as l_without
+            FROM (
+                SELECT card_name, opponent_deck_id, w_with, l_with, w_without, l_without
+                FROM {MARTS}.card_match_splits
+                WHERE deck_id = ? AND card_name IN ({placeholders})
+                UNION ALL
+                SELECT card_name, opponent_deck_id, w_with, l_with, w_without, l_without
+                FROM {MARTS}.major_card_match_splits
+                WHERE deck_id = ? AND card_name IN ({placeholders})
+            ) sub
+            GROUP BY card_name, opponent_deck_id
+        """, [archetype_id] + submitted_cards + [archetype_id] + submitted_cards).fetchall()
+    else:
+        split_rows = conn.execute(f"""
+            SELECT card_name, opponent_deck_id,
+                   w_with, l_with, w_without, l_without
+            FROM {t['splits']}
+            WHERE deck_id = ?
+              AND card_name IN ({placeholders})
+        """, [archetype_id] + submitted_cards).fetchall()
 
     # Index splits by (card_name, opp_deck_id)
     splits: dict[tuple, tuple] = {}

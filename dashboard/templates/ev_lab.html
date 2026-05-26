@@ -29,6 +29,22 @@
 
   .side-panel { display: flex; flex-direction: column; gap: .85rem; }
 
+  /* ── Source toggle ───────────────────────────────────────────────────────── */
+  .source-toggle {
+    display: flex; background: rgba(255,255,255,.04);
+    border: 1px solid rgba(255,255,255,.08); border-radius: 8px;
+    overflow: hidden; font-size: .7rem; font-weight: 800;
+    letter-spacing: .06em; text-transform: uppercase;
+  }
+  .source-toggle button {
+    flex: 1; padding: .38rem .5rem; border: none; cursor: pointer;
+    background: transparent; color: var(--muted);
+    font-family: inherit; font-size: inherit;
+    font-weight: inherit; letter-spacing: inherit; text-transform: inherit;
+    transition: background .15s, color .15s;
+  }
+  .source-toggle button.active { background: var(--violet); color: #fff; }
+
   .arch-box {
     background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08);
     border-radius: 10px; padding: 1rem 1.1rem;
@@ -221,6 +237,12 @@ Energy: 10
 ..."></textarea>
 
     <div class="side-panel">
+      <div class="source-toggle" id="source-toggle">
+        <button class="active" onclick="setSource('online')">Online</button>
+        <button onclick="setSource('majors')">Majors</button>
+        <button onclick="setSource('both')">Both</button>
+      </div>
+
       <div class="arch-box">
         <label>Detected Archetype</label>
         <div id="arch-detected" style="color:var(--muted);font-size:.8rem;">— paste a list to detect —</div>
@@ -248,21 +270,33 @@ Energy: 10
 <script>
 let _archetypes = [];
 let _currentResult = null;
+let _currentSource = 'online';
+
+function setSource(src) {
+  _currentSource = src;
+  document.querySelectorAll('#source-toggle button').forEach(btn => {
+    btn.classList.toggle('active', btn.textContent.toLowerCase() === src);
+  });
+  loadArchetypes();
+}
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
-(async function init() {
+async function loadArchetypes() {
   try {
-    const r = await fetch('/api/ev/archetypes');
+    const r = await fetch('/api/ev/archetypes?source=' + _currentSource);
     _archetypes = await r.json();
     const sel = document.getElementById('arch-override');
+    sel.innerHTML = '<option value="">Auto-detect</option>';
     _archetypes.forEach(a => {
       const opt = document.createElement('option');
       opt.value = a.deck_id;
-      opt.textContent = `${a.deck_name} (${a.total_lists.toLocaleString()} lists)`;
+      opt.textContent = `${a.deck_name || a.deck_id} (${(a.total_lists||0).toLocaleString()} lists)`;
       sel.appendChild(opt);
     });
   } catch(e) { console.warn('Could not load archetypes', e); }
-})();
+}
+
+(async function init() { await loadArchetypes(); })();
 
 // ── Live detection on paste ───────────────────────────────────────────────────
 document.getElementById('paste-area').addEventListener('input', debounce(detectArch, 600));
@@ -280,7 +314,7 @@ async function detectArch() {
     const r  = await fetch('/api/ev/compute', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({decklist: raw}),
+      body: JSON.stringify({decklist: raw, source: _currentSource}),
     });
     const d = await r.json();
     if (d.archetype_id) {
@@ -313,7 +347,7 @@ async function runEV() {
     const r = await fetch('/api/ev/compute', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({decklist: raw, archetype_id: arch}),
+      body: JSON.stringify({decklist: raw, archetype_id: arch, source: _currentSource}),
     });
     const d = await r.json();
     if (d.error) {

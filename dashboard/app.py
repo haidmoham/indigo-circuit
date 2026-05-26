@@ -215,16 +215,19 @@ def ev_compute():
     Body: {"decklist": "<ptcg live export>", "archetype_id": "<optional override>"}
     """
     try:
-        body        = request.get_json(force=True) or {}
-        raw_list    = body.get("decklist", "").strip()
+        body         = request.get_json(force=True) or {}
+        raw_list     = body.get("decklist", "").strip()
         archetype_id = body.get("archetype_id") or None
+        source       = body.get("source", "online")
+        if source not in ("online", "majors", "both"):
+            source = "online"
         if not raw_list:
             return jsonify({"error": "decklist is required"}), 400
 
         from .ev import compute_list_ev
         conn   = duckdb.connect(DUCKDB_PATH, read_only=True)
         try:
-            result = compute_list_ev(raw_list, conn, archetype_id=archetype_id)
+            result = compute_list_ev(raw_list, conn, archetype_id=archetype_id, source=source)
         finally:
             conn.close()
 
@@ -241,16 +244,49 @@ def ev_compute():
 @app.get("/api/ev/archetypes")
 def ev_archetypes():
     """List of archetypes available for manual override in EV Lab."""
-    rows = query(f"""
-        SELECT ca.deck_id,
-               MIN(s.deck_name) AS deck_name,
-               ca.total_lists
-        FROM {MARTS}.card_archetype_stats ca
-        LEFT JOIN raw.standings s
-               ON s.deck_id = ca.deck_id AND s.deck_name IS NOT NULL
-        GROUP BY ca.deck_id, ca.total_lists
-        ORDER BY ca.total_lists DESC
-    """)
+    source = request.args.get("source", "online")
+    if source not in ("online", "majors", "both"):
+        source = "online"
+
+    if source == "both":
+        rows = query(f"""
+            SELECT ca.deck_id,
+                   MIN(COALESCE(s.deck_name, ms.deck_name)) AS deck_name,
+                   ca.total_lists
+            FROM (
+                SELECT deck_id, total_lists FROM {MARTS}.card_archetype_stats
+                UNION
+                SELECT deck_id, total_lists FROM {MARTS}.major_card_archetype_stats
+            ) ca
+            LEFT JOIN raw.standings s
+                   ON s.deck_id = ca.deck_id AND s.deck_name IS NOT NULL
+            LEFT JOIN raw.major_standings ms
+                   ON ms.deck_id = ca.deck_id AND ms.deck_name IS NOT NULL
+            GROUP BY ca.deck_id, ca.total_lists
+            ORDER BY ca.total_lists DESC
+        """)
+    elif source == "majors":
+        rows = query(f"""
+            SELECT ca.deck_id,
+                   MIN(s.deck_name) AS deck_name,
+                   ca.total_lists
+            FROM {MARTS}.major_card_archetype_stats ca
+            LEFT JOIN raw.major_standings s
+                   ON s.deck_id = ca.deck_id AND s.deck_name IS NOT NULL
+            GROUP BY ca.deck_id, ca.total_lists
+            ORDER BY ca.total_lists DESC
+        """)
+    else:
+        rows = query(f"""
+            SELECT ca.deck_id,
+                   MIN(s.deck_name) AS deck_name,
+                   ca.total_lists
+            FROM {MARTS}.card_archetype_stats ca
+            LEFT JOIN raw.standings s
+                   ON s.deck_id = ca.deck_id AND s.deck_name IS NOT NULL
+            GROUP BY ca.deck_id, ca.total_lists
+            ORDER BY ca.total_lists DESC
+        """)
     return jsonify([
         {"deck_id": r["DECK_ID"], "deck_name": r["DECK_NAME"], "total_lists": r["TOTAL_LISTS"]}
         for r in rows
