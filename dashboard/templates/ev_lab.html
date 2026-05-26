@@ -130,6 +130,20 @@
   .red    { color: #f87171; }
   .muted  { color: var(--muted); }
 
+  /* ── Matchup focus row ───────────────────────────────────────────────────── */
+  .focus-row { display: flex; align-items: center; gap: .5rem; flex-wrap: wrap; margin-bottom: 1.25rem; }
+  .focus-label { font-size: .62rem; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); white-space: nowrap; }
+  .focus-chip { display: flex; align-items: center; gap: .3rem; background: rgba(139,92,246,.15); border: 1px solid rgba(139,92,246,.25); border-radius: 20px; padding: .2rem .5rem .2rem .65rem; font-size: .72rem; color: var(--text); }
+  .focus-chip-x { background: none; border: none; cursor: pointer; color: var(--muted); font-size: .8rem; padding: 0; line-height: 1; }
+  .focus-chip-x:hover { color: var(--text); }
+  .focus-add-wrap { position: relative; }
+  .focus-add-btn { background: rgba(255,255,255,.05); border: 1px dashed rgba(255,255,255,.15); border-radius: 20px; padding: .2rem .65rem; font-size: .72rem; color: var(--muted); cursor: pointer; transition: background .15s, color .15s; }
+  .focus-add-btn:hover { background: rgba(255,255,255,.09); color: var(--text); }
+  .focus-dropdown { display: none; position: absolute; top: calc(100% + 4px); left: 0; min-width: 220px; z-index: 210; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; box-shadow: 0 8px 24px rgba(0,0,0,.5); overflow: hidden; }
+  .focus-dropdown.open { display: block; }
+  .focus-search { width: 100%; background: rgba(255,255,255,.06); color: var(--text); border: none; border-bottom: 1px solid var(--border); padding: .4rem .65rem; font-size: .78rem; font-family: inherit; outline: none; box-sizing: border-box; }
+  .focus-list { max-height: 200px; overflow-y: auto; padding: .25rem 0; }
+
   /* ── Card table ──────────────────────────────────────────────────────────── */
   .card-section { margin-bottom: 2rem; }
   .section-label {
@@ -324,6 +338,7 @@ Energy: 10
 let _archetypes = [];
 let _currentResult = null;
 let _currentSource = 'online';
+let _focusedOpps = new Set();
 
 function setSource(src) {
   _currentSource = src;
@@ -511,6 +526,22 @@ function renderResults(d) {
     </div>
   </div>`;
 
+  // Seed matchup focus: top 6 opponents by meta share
+  const _oppIds = (d.opponent_archetypes || []).map(a => a.id);
+  _focusedOpps = new Set(_oppIds.slice(0, 6));
+
+  html += `<div class="focus-row" id="focus-row">
+    <span class="focus-label">Matchup Focus</span>
+    <div id="focus-chips"></div>
+    <div class="focus-add-wrap" id="focus-add-wrap">
+      <button class="focus-add-btn" id="focus-add-btn">+ Add</button>
+      <div class="focus-dropdown" id="focus-dropdown">
+        <input class="focus-search" id="focus-search" placeholder="Search opponents…" autocomplete="off" spellcheck="false">
+        <div class="focus-list" id="focus-list"></div>
+      </div>
+    </div>
+  </div>`;
+
   // Group cards
   const tech   = d.cards.filter(c => !c.is_core && c.inclusion_rate <  0.40 && c.scoreable);
   const common = d.cards.filter(c => !c.is_core && c.inclusion_rate >= 0.40 && c.scoreable);
@@ -532,6 +563,63 @@ function renderResults(d) {
   html += renderArchetypeBreakdown(d);
 
   res.innerHTML = html;
+
+  // Wire matchup focus UI
+  refreshFocusUI(d);
+  let _focusPickerOpen = false;
+  const _focusAddBtn  = document.getElementById('focus-add-btn');
+  const _focusDrop    = document.getElementById('focus-dropdown');
+  const _focusSearchEl = document.getElementById('focus-search');
+
+  function closeFocusPicker() {
+    _focusDrop.classList.remove('open');
+    _focusPickerOpen = false;
+  }
+
+  _focusAddBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    _focusPickerOpen = !_focusPickerOpen;
+    _focusDrop.classList.toggle('open', _focusPickerOpen);
+    if (_focusPickerOpen) { _focusSearchEl.value = ''; renderFocusList(d, ''); _focusSearchEl.focus(); }
+  });
+  _focusSearchEl.addEventListener('input', e => renderFocusList(d, e.target.value));
+  document.addEventListener('click', function _focusOutside(e) {
+    if (!document.getElementById('focus-add-wrap')?.contains(e.target)) {
+      closeFocusPicker();
+      if (!document.getElementById('focus-row')) document.removeEventListener('click', _focusOutside);
+    }
+  });
+
+  function refreshFocusUI(d) {
+    document.getElementById('focus-chips').innerHTML = [..._focusedOpps].map(id => {
+      const arch = (d.opponent_archetypes || []).find(a => a.id === id);
+      const name = arch ? esc(arch.name || arch.id) : esc(id);
+      return `<span class="focus-chip">${name}<button class="focus-chip-x" data-opp="${escAttr(id)}">×</button></span>`;
+    }).join('');
+    document.querySelectorAll('.focus-chip-x').forEach(btn =>
+      btn.addEventListener('click', () => {
+        _focusedOpps.delete(btn.dataset.opp);
+        refreshFocusUI(d); applyFocusFilter();
+      })
+    );
+    renderFocusList(d, _focusSearchEl?.value || '');
+  }
+
+  function renderFocusList(d, q) {
+    const norm = q.trim().toLowerCase();
+    const available = (d.opponent_archetypes || [])
+      .filter(a => !_focusedOpps.has(a.id) && (!norm || (a.name || a.id).toLowerCase().includes(norm)));
+    const list = document.getElementById('focus-list');
+    list.innerHTML = available.slice(0, 50).map(a =>
+      `<div class="arch-opt" data-opp="${escAttr(a.id)}">${esc(a.name || a.id)}<span style="opacity:.5;font-size:.68rem;margin-left:.35rem">${pct(a.share)} meta</span></div>`
+    ).join('') || `<div style="padding:.5rem .75rem;font-size:.75rem;color:var(--muted)">No more opponents</div>`;
+    list.querySelectorAll('.arch-opt').forEach(el =>
+      el.addEventListener('click', () => {
+        _focusedOpps.add(el.dataset.opp);
+        closeFocusPicker(); refreshFocusUI(d); applyFocusFilter();
+      })
+    );
+  }
 }
 
 function cardSection(label, cards, tier) {
@@ -594,17 +682,24 @@ function copyCurveHtml(m, submittedCount) {
   }).join('') + '</div>';
 }
 
+function applyFocusFilter() {
+  document.querySelectorAll('.mu-group[data-opp]').forEach(el => {
+    el.style.display = _focusedOpps.has(el.dataset.opp) ? '' : 'none';
+  });
+}
+
 function matchupPanel(c, rowId) {
   if (!c.per_matchup || !c.per_matchup.length) return `<div class="matchup-panel" id="mu-${rowId}"></div>`;
 
   const scored    = c.per_matchup.filter(m => m.scoreable);
   const withLabel = c.copy_modeled ? `W/ ×${c.submitted_count}` : 'W/ card';
-  const rows = scored.slice(0, 12).map(m => {
+  const rows = scored.map(m => {
     const d = m.delta;
     const col = d > 0 ? '#4ade80' : d < 0 ? '#f87171' : 'var(--muted)';
     const bw  = Math.min(Math.abs(d) * 300, 60);
     const curve = copyCurveHtml(m, c.submitted_count);
-    return `<div class="mu-group"><div class="mu-row">
+    const vis = !_focusedOpps.size || _focusedOpps.has(m.opponent_deck_id) ? '' : 'display:none';
+    return `<div class="mu-group" data-opp="${escAttr(m.opponent_deck_id)}" style="${vis}"><div class="mu-row">
       <span>${esc(m.opponent_deck_name || m.opponent_deck_id)}</span>
       <span class="mu-wr">${pct(m.wr_without)}</span>
       <span class="mu-wr">${pct(m.wr_with)}</span>
