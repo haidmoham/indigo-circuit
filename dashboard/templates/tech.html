@@ -24,13 +24,40 @@
                    padding:0.15rem 0.5rem;border-radius:4px;font-size:0.6rem;font-weight:800;
                    letter-spacing:0.08em;text-transform:uppercase">Tech</span>
     </div>
-    <select id="deck-select"
-      style="background:var(--surface);color:var(--text);border:1px solid var(--border);
-             border-radius:8px;padding:0.4rem 0.75rem;font-size:0.8rem;font-weight:700;
-             font-family:inherit;letter-spacing:0.04em;cursor:pointer;outline:none;
-             text-transform:uppercase;min-width:220px">
-      <option value="">Loading decks…</option>
-    </select>
+    <!-- Searchable deck picker -->
+    <div id="deck-picker" style="position:relative;min-width:240px">
+      <div style="position:relative;display:flex;align-items:center">
+        <input id="deck-search"
+          autocomplete="off" spellcheck="false"
+          placeholder="Search decks…"
+          style="width:100%;background:var(--surface);color:var(--text);
+                 border:1px solid var(--border);border-radius:8px;
+                 padding:0.4rem 2rem 0.4rem 0.75rem;font-size:0.8rem;font-weight:700;
+                 font-family:inherit;letter-spacing:0.04em;outline:none;box-sizing:border-box;
+                 text-transform:uppercase;cursor:pointer"
+          readonly>
+        <span id="deck-caret"
+          style="position:absolute;right:0.6rem;pointer-events:none;
+                 color:var(--muted);font-size:0.7rem;transition:transform 0.15s">▾</span>
+      </div>
+      <div id="deck-dropdown"
+        style="display:none;position:absolute;top:calc(100% + 4px);left:0;right:0;z-index:200;
+               background:var(--surface);border:1px solid var(--border);border-radius:8px;
+               box-shadow:0 8px 32px rgba(0,0,0,0.5);overflow:hidden">
+        <div style="padding:0.4rem 0.5rem;border-bottom:1px solid var(--border)">
+          <input id="deck-filter"
+            autocomplete="off" spellcheck="false"
+            placeholder="Type to filter…"
+            style="width:100%;background:rgba(255,255,255,0.06);color:var(--text);
+                   border:1px solid var(--border);border-radius:6px;
+                   padding:0.35rem 0.6rem;font-size:0.78rem;font-family:inherit;
+                   outline:none;box-sizing:border-box;text-transform:uppercase;
+                   letter-spacing:0.04em">
+        </div>
+        <div id="deck-list"
+          style="max-height:320px;overflow-y:auto;padding:0.25rem 0"></div>
+      </div>
+    </div>
   </div>
 </div>
 
@@ -319,25 +346,93 @@ function renderGroup(title, icon, cards, themeColor) {
   </div>`;
 }
 
-// ── Deck loader ───────────────────────────────────────────────────────────────
+// ── Searchable deck picker ────────────────────────────────────────────────────
+let _allDecks  = [];   // [{id, label}]
+let _pickerOpen = false;
+
+function openPicker() {
+  document.getElementById('deck-dropdown').style.display = '';
+  document.getElementById('deck-caret').style.transform  = 'rotate(180deg)';
+  document.getElementById('deck-search').style.borderColor = 'var(--violet)';
+  document.getElementById('deck-filter').value = '';
+  filterDecks('');
+  document.getElementById('deck-filter').focus();
+  _pickerOpen = true;
+}
+
+function closePicker() {
+  document.getElementById('deck-dropdown').style.display = 'none';
+  document.getElementById('deck-caret').style.transform  = '';
+  document.getElementById('deck-search').style.borderColor = 'var(--border)';
+  _pickerOpen = false;
+}
+
+function filterDecks(q) {
+  const norm = q.trim().toLowerCase();
+  const list = document.getElementById('deck-list');
+  const matches = norm
+    ? _allDecks.filter(d => d.label.toLowerCase().includes(norm))
+    : _allDecks;
+
+  if (!matches.length) {
+    list.innerHTML = `<div style="padding:0.65rem 0.85rem;font-size:0.78rem;color:var(--muted)">No matches</div>`;
+    return;
+  }
+
+  list.innerHTML = matches.map(d => `
+    <div class="deck-opt"
+         data-id="${d.id}" data-label="${d.label.replace(/"/g,'&quot;')}"
+         onclick="selectDeck('${d.id.replace(/'/g,"\\'")}', this.dataset.label)"
+         style="padding:0.5rem 0.85rem;font-size:0.78rem;font-weight:700;
+                letter-spacing:0.04em;text-transform:uppercase;cursor:pointer;
+                color:var(--text);transition:background 0.08s"
+         onmouseover="this.style.background='rgba(255,255,255,0.07)'"
+         onmouseout="this.style.background='transparent'"
+    >${d.label}</div>`).join('');
+}
+
+function selectDeck(id, label) {
+  document.getElementById('deck-search').value = label;
+  closePicker();
+  loadDeck(id, label);
+}
+
 async function loadDecks() {
   const decks = await fetch('/api/tech/decks').then(r => r.json());
-  const sel = document.getElementById('deck-select');
-  sel.innerHTML = '<option value="">— Select a deck —</option>' +
-    decks.map(d => {
-      const id   = d.DECK_ID   || d.deck_id   || '';
-      const name = d.DECK_NAME || d.deck_name || id;
-      const n    = d.TOTAL_LISTS || d.total_lists || 0;
-      return `<option value="${id}">${name || id} (${n} lists)</option>`;
-    }).join('');
-  sel.addEventListener('change', () => {
-    if (sel.value) loadDeck(sel.value, sel.options[sel.selectedIndex].text);
-    else {
-      document.getElementById('cards-wrap').style.display   = 'none';
-      document.getElementById('deck-meta').style.display    = 'none';
-      document.getElementById('empty-state').style.display  = '';
+  _allDecks = decks.map(d => {
+    const id   = d.DECK_ID     || d.deck_id     || '';
+    const name = d.DECK_NAME   || d.deck_name   || id;
+    const n    = d.TOTAL_LISTS || d.total_lists  || 0;
+    return { id, label: `${name || id} (${n} lists)` };
+  });
+
+  const searchEl  = document.getElementById('deck-search');
+  const filterEl  = document.getElementById('deck-filter');
+  const pickerEl  = document.getElementById('deck-picker');
+
+  searchEl.placeholder = 'Select a deck…';
+  searchEl.removeAttribute('readonly');
+
+  // Toggle on search box click / focus
+  searchEl.addEventListener('click',  () => _pickerOpen ? closePicker() : openPicker());
+  searchEl.addEventListener('keydown', e => { if (e.key === 'Escape') closePicker(); });
+
+  // Live filter as user types in the filter box
+  filterEl.addEventListener('input',  () => filterDecks(filterEl.value));
+  filterEl.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closePicker();
+    if (e.key === 'Enter') {
+      const first = document.querySelector('.deck-opt');
+      if (first) selectDeck(first.dataset.id, first.dataset.label);
     }
   });
+
+  // Close on outside click
+  document.addEventListener('click', e => {
+    if (_pickerOpen && !pickerEl.contains(e.target)) closePicker();
+  });
+
+  filterDecks('');
 }
 
 async function loadDeck(deckId, label) {
