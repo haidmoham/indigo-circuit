@@ -210,14 +210,44 @@ def fetch_player_decklist(tournament_id: str, player_id: str) -> list[dict]:
         return []
 
     soup = BeautifulSoup(resp.content, "html.parser")
+
+    # Labs injects decklist as JSON inside a <script> tag.
+    # Structure: {"status":200,...,"body":"<json-string>"}
+    # where the body JSON has {"ok":true,"message":{"pokemon":[...],"trainer":[...],"energy":[...]}}
+    import json as _json
+    for script in soup.find_all("script"):
+        txt = script.string or ""
+        if not txt.strip().startswith("{"):
+            continue
+        try:
+            outer = _json.loads(txt)
+            body_str = outer.get("body", "{}")
+            inner = _json.loads(body_str) if isinstance(body_str, str) else body_str
+            message = inner.get("message", {})
+            if not isinstance(message, dict) or "pokemon" not in message:
+                continue
+            cards = []
+            for category in ("pokemon", "trainer", "energy"):
+                for c in message.get(category, []):
+                    name = c.get("name", "").strip()
+                    if name:
+                        cards.append({
+                            "card_category": category,
+                            "card_name":     name,
+                            "card_set":      c.get("set"),
+                            "card_number":   str(c.get("number", "")) or None,
+                            "card_count":    int(c.get("count", 1)),
+                        })
+            if cards:
+                return cards
+        except Exception:
+            pass
+
+    # Fallback: walk HTML elements for table/list-based layouts
     cards = []
     current_category = None
-
-    # Walk every element; track category headers and parse card rows/items
     for el in soup.find_all(True):
         tag = el.name.lower()
-
-        # Category headers (h2, h3, div with category text, th)
         if tag in ("h2", "h3", "th"):
             txt = el.get_text(strip=True).lower()
             if "pokémon" in txt or "pokemon" in txt:
@@ -227,32 +257,21 @@ def fetch_player_decklist(tournament_id: str, player_id: str) -> list[dict]:
             elif "energy" in txt:
                 current_category = "energy"
             continue
-
         if not current_category:
             continue
-
-        # Table row approach
         if tag == "tr":
             cells = el.find_all("td")
             if len(cells) < 2:
                 continue
             card_count, card_name, card_set, card_number = _parse_card_cells(cells)
             if card_name and card_count:
-                cards.append({
-                    "card_category": current_category,
-                    "card_name":     card_name,
-                    "card_set":      card_set,
-                    "card_number":   card_number,
-                    "card_count":    card_count,
-                })
-
-        # List item approach: "4x Dreepy (ASC 158)" or "4 Dreepy ASC 158"
+                cards.append({"card_category": current_category, "card_name": card_name,
+                               "card_set": card_set, "card_number": card_number, "card_count": card_count})
         if tag == "li":
             parsed = _parse_card_text(el.get_text(strip=True))
             if parsed:
                 parsed["card_category"] = current_category
                 cards.append(parsed)
-
     return cards
 
 
