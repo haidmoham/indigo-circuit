@@ -446,10 +446,16 @@ def load_standings(conn, tournament_id: str, standings: list[dict]):
 
 def already_scraped_players(conn, tournament_id: str) -> set[str]:
     """Return player_ids that already have match data for this tournament."""
-    rows = conn.execute(
-        "SELECT DISTINCT player_id FROM raw.major_matches WHERE labs_tournament_id = ?",
-        (tournament_id,)
-    ).fetchall()
+    # A player is fully cached only if they have BOTH match data AND decklist data.
+    # Players with matches but no decklists need to be re-scraped after the parser fix.
+    rows = conn.execute("""
+        SELECT DISTINCT player_id FROM raw.major_matches
+        WHERE labs_tournament_id = ?
+          AND player_id IN (
+              SELECT DISTINCT player_id FROM raw.major_decklists
+              WHERE labs_tournament_id = ?
+          )
+    """, (tournament_id, tournament_id)).fetchall()
     return {r[0] for r in rows}
 
 
