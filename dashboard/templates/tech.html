@@ -436,7 +436,10 @@ async function loadDecks() {
     const n    = d.TOTAL_LISTS || d.total_lists  || 0;
     return { id, label: `${name || id} (${n} lists)` };
   });
+  filterDecks('');
+}
 
+function initPicker() {
   const searchEl  = document.getElementById('deck-search');
   const filterEl  = document.getElementById('deck-filter');
   const pickerEl  = document.getElementById('deck-picker');
@@ -444,7 +447,7 @@ async function loadDecks() {
   searchEl.placeholder = 'Select a deck…';
   searchEl.removeAttribute('readonly');
 
-  // Toggle on search box click / focus
+  // Toggle on search box click — registered once only
   searchEl.addEventListener('click',  () => _pickerOpen ? closePicker() : openPicker());
   searchEl.addEventListener('keydown', e => { if (e.key === 'Escape') closePicker(); });
 
@@ -462,8 +465,6 @@ async function loadDecks() {
   document.addEventListener('click', e => {
     if (_pickerOpen && !pickerEl.contains(e.target)) closePicker();
   });
-
-  filterDecks('');
 }
 
 async function loadDeck(deckId, label) {
@@ -518,5 +519,6 @@ async function loadDeck(deckId, label) {
   document.getElementById('cards-wrap').style.display = '';
 }
 
+initPicker();
 loadDecks();
 {% endblock %}

@@ -1305,7 +1305,10 @@ def _run_pipeline():
     # Shadow-copy the live DB so pipeline writes go to a separate file.
     # Readers keep hitting the live file uninterrupted; the signal file
     # is only held for <1 second during the final atomic rename.
-    shadow = DUCKDB_PATH + ".shadow"
+    # Use _shadow.duckdb suffix so the catalog name stays a clean identifier.
+    # ptcg.duckdb.shadow → catalog "ptcg.duckdb" (dotted, breaks dbt);
+    # ptcg_shadow.duckdb → catalog "ptcg_shadow" (fine).
+    shadow = DUCKDB_PATH.replace(".duckdb", "_shadow.duckdb") if DUCKDB_PATH.endswith(".duckdb") else DUCKDB_PATH + "_shadow.duckdb"
     using_shadow = False
     if os.path.exists(DUCKDB_PATH):
         try:
