@@ -266,15 +266,31 @@ def ev_archetypes():
     if source not in ("online", "majors", "both"):
         source = "online"
 
+    # CTE: deck_ids that appear in the current season's major tournaments only.
+    # Prevents rotated archetypes (Charizard, Gardevoir, etc.) from leaking in
+    # when multi-season majors data is present.
+    current_season_decks_cte = f"""
+        current_season_decks AS (
+            SELECT DISTINCT ms.deck_id
+            FROM raw.major_standings ms
+            JOIN raw.major_tournaments mt
+              ON ms.labs_tournament_id = mt.labs_id
+            WHERE mt.season = (SELECT MAX(season) FROM raw.major_tournaments)
+        )
+    """
+
     if source == "both":
         rows = query(f"""
+            WITH {current_season_decks_cte}
             SELECT ca.deck_id,
                    MIN(COALESCE(s.deck_name, ms.deck_name)) AS deck_name,
                    ca.total_lists
             FROM (
                 SELECT deck_id, total_lists FROM {MARTS}.card_archetype_stats
                 UNION
-                SELECT deck_id, total_lists FROM {MARTS}.major_card_archetype_stats
+                SELECT deck_id, total_lists
+                FROM {MARTS}.major_card_archetype_stats
+                WHERE deck_id IN (SELECT deck_id FROM current_season_decks)
             ) ca
             LEFT JOIN raw.standings s
                    ON s.deck_id = ca.deck_id AND s.deck_name IS NOT NULL
@@ -285,10 +301,12 @@ def ev_archetypes():
         """)
     elif source == "majors":
         rows = query(f"""
+            WITH {current_season_decks_cte}
             SELECT ca.deck_id,
                    MIN(s.deck_name) AS deck_name,
                    ca.total_lists
             FROM {MARTS}.major_card_archetype_stats ca
+            JOIN current_season_decks csd ON ca.deck_id = csd.deck_id
             LEFT JOIN raw.major_standings s
                    ON s.deck_id = ca.deck_id AND s.deck_name IS NOT NULL
             GROUP BY ca.deck_id, ca.total_lists
@@ -503,15 +521,26 @@ def online_archetype_aces():
 def tech_decks():
     source = request.args.get("source", "online")  # online | majors | both
 
+    # CTE: limit majors data to the current season to exclude rotated archetypes
+    _season_cte = f"""
+        current_season_decks AS (
+            SELECT DISTINCT ms.deck_id
+            FROM raw.major_standings ms
+            JOIN raw.major_tournaments mt ON ms.labs_tournament_id = mt.labs_id
+            WHERE mt.season = (SELECT MAX(season) FROM raw.major_tournaments)
+        )
+    """
+
     def _fetch():
         if source == "majors":
-            # Decks that have major-tournament decklist data
             return query(
                 f"""
+                WITH {_season_cte}
                 SELECT mca.deck_id,
                        MAX(ms.deck_name) AS deck_name,
                        MAX(mca.total_lists) AS total_lists
                 FROM {MARTS}.MAJOR_CARD_ARCHETYPE_STATS mca
+                JOIN current_season_decks csd ON mca.deck_id = csd.deck_id
                 LEFT JOIN raw.major_standings ms ON mca.deck_id = ms.deck_id
                 GROUP BY mca.deck_id
                 HAVING MAX(mca.total_lists) >= 3
@@ -522,6 +551,7 @@ def tech_decks():
         elif source == "both":
             return query(
                 f"""
+                WITH {_season_cte}
                 SELECT deck_id, deck_name, total_lists FROM (
                     SELECT cas.deck_id,
                            MAX(pah.deck_name) AS deck_name,
@@ -534,6 +564,7 @@ def tech_decks():
                            MAX(ms.deck_name) AS deck_name,
                            MAX(mca.total_lists) AS total_lists
                     FROM {MARTS}.MAJOR_CARD_ARCHETYPE_STATS mca
+                    JOIN current_season_decks csd ON mca.deck_id = csd.deck_id
                     LEFT JOIN raw.major_standings ms ON mca.deck_id = ms.deck_id
                     GROUP BY mca.deck_id HAVING MAX(mca.total_lists) >= 3
                 ) combined
