@@ -266,16 +266,17 @@ def ev_archetypes():
     if source not in ("online", "majors", "both"):
         source = "online"
 
-    # CTE: deck_ids that appear in the current season's major tournaments only.
-    # Prevents rotated archetypes (Charizard, Gardevoir, etc.) from leaking in
-    # when multi-season majors data is present.
+    # CTE: deck_ids from tournaments on/after the most recent April rotation.
+    # PTCG rotates the card pool each April; this excludes pre-rotation archetypes
+    # (e.g. Charizard, Gardevoir, Goldengo) that rotated out last April.
+    _cutoff = _rotation_cutoff()
     current_season_decks_cte = f"""
         current_season_decks AS (
             SELECT DISTINCT ms.deck_id
             FROM raw.major_standings ms
             JOIN raw.major_tournaments mt
               ON ms.labs_tournament_id = mt.labs_id
-            WHERE mt.season = (SELECT MAX(season) FROM raw.major_tournaments)
+            WHERE mt.tournament_date >= '{_cutoff}'
         )
     """
 
@@ -521,13 +522,15 @@ def online_archetype_aces():
 def tech_decks():
     source = request.args.get("source", "online")  # online | majors | both
 
-    # CTE: limit majors data to the current season to exclude rotated archetypes
+    # CTE: limit to post-rotation tournaments (most recent April 1 cutoff).
+    # Excludes archetypes from rotated blocks so only currently-legal decks appear.
+    _tech_cutoff = _rotation_cutoff()
     _season_cte = f"""
         current_season_decks AS (
             SELECT DISTINCT ms.deck_id
             FROM raw.major_standings ms
             JOIN raw.major_tournaments mt ON ms.labs_tournament_id = mt.labs_id
-            WHERE mt.season = (SELECT MAX(season) FROM raw.major_tournaments)
+            WHERE mt.tournament_date >= '{_tech_cutoff}'
         )
     """
 
@@ -789,6 +792,18 @@ def _load_formats():
     fmts_path = os.path.join(os.path.dirname(__file__), '..', 'data', 'formats.json')
     with open(fmts_path) as f:
         return sorted(json.load(f), key=lambda x: x['start'])
+
+
+def _rotation_cutoff() -> str:
+    """Return the ISO date string for the most recent April 1 rotation.
+
+    PTCG rotates the legal card pool each April; only tournaments played
+    on or after that date reflect the current valid archetype pool.
+    Returns e.g. "2026-04-01" when called any time on/after April 2026.
+    """
+    today = date.today()
+    cutoff_year = today.year if today >= date(today.year, 4, 1) else today.year - 1
+    return f"{cutoff_year}-04-01"
 
 
 def _format_window(since: str):
