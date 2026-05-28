@@ -1,6 +1,22 @@
 -- Per-round win/loss splits by copy count for major tournaments (Regionals/ICs/Worlds).
 -- Mirrors card_copy_splits but uses raw.major_* tables.
-with player_matches as (
+-- Filtered to the current rotation window (tournaments on/after most recent April 1).
+with rotation_start as (
+    select case
+        when extract(month from current_date) >= 4
+        then make_date(extract(year from current_date)::int, 4, 1)
+        else make_date(extract(year from current_date)::int - 1, 4, 1)
+    end as cutoff
+),
+
+current_tournaments as (
+    select mt.labs_id
+    from {{ source('ptcg_raw', 'major_tournaments') }} mt
+    cross join rotation_start rs
+    where mt.tournament_date >= rs.cutoff
+),
+
+player_matches as (
     select
         labs_tournament_id  as tournament_id,
         player_id,
@@ -9,12 +25,14 @@ with player_matches as (
     from {{ source('ptcg_raw', 'major_matches') }}
     where result in ('W', 'L')
       and opponent_deck_id is not null
+      and labs_tournament_id in (select labs_id from current_tournaments)
 ),
 
 standings as (
     select labs_tournament_id as tournament_id, player_id, deck_id
     from {{ source('ptcg_raw', 'major_standings') }}
     where deck_id is not null
+      and labs_tournament_id in (select labs_id from current_tournaments)
 ),
 
 match_with_decks as (
@@ -35,6 +53,7 @@ player_cards as (
            max(card_count) as card_count
     from {{ source('ptcg_raw', 'major_decklists') }}
     where card_count is not null
+      and labs_tournament_id in (select labs_id from current_tournaments)
     group by labs_tournament_id, player_id, card_name
 ),
 
