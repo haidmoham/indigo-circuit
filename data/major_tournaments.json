@@ -1,4 +1,7 @@
 [
+  {"id": "0068", "name": "Regional Championship Indianapolis",     "date": "2026-05-31", "location": "US", "tier": "regional",       "season": "2026"},
+  {"id": "0067", "name": "Special Event Lima",                     "date": "2026-05-24", "location": "PE", "tier": "special",        "season": "2026"},
+  {"id": "0066", "name": "Regional Championship Melbourne",        "date": "2026-05-24", "location": "AU", "tier": "regional",       "season": "2026"},
   {"id": "0065", "name": "Regional Championship Campinas",         "date": "2026-05-16", "location": "BR", "tier": "regional",       "season": "2026"},
   {"id": "0064", "name": "Regional Championship Utrecht",          "date": "2026-05-16", "location": "NL", "tier": "regional",       "season": "2026"},
   {"id": "0063", "name": "Regional Championship Los Angeles",      "date": "2026-05-08", "location": "US", "tier": "regional",       "season": "2026"},
