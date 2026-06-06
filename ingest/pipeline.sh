@@ -20,8 +20,8 @@ log "=== Indigo Circuit pipeline start (dbt-only=$DBT_ONLY) ==="
 DUCKDB_PATH="${DUCKDB_PATH:-/data/ptcg.duckdb}"
 
 if [[ $DBT_ONLY -eq 0 ]]; then
-  log "--- Step 1/4: Limitless Labs ingest ---"
-  python3 ingest/labs.py
+  log "--- Step 1/4: Limitless Labs ingest (auto-discover + current rotation) ---"
+  python3 ingest/labs.py --discover --with-decklists --current-rotation
 
   log "--- Step 2/4: Limitless API ingest ---"
   python3 ingest/load.py

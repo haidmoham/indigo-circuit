@@ -4,14 +4,21 @@ Ingest major tournament data from Limitless Labs into DuckDB.
 Labs covers official Play Pokémon events (Regionals, ICs, Worlds) sourced
 from RK9. Tournaments are curated in data/major_tournaments.json.
 
+Tournaments are seeded from data/major_tournaments.json and auto-discovered from
+the Labs index (--discover). The DB (raw.major_tournaments) is the source of truth
+for the scrape work-list, so discovered events persist across deploys.
+
 Usage:
-    python ingest/labs.py                              # load all curated tournaments
+    python ingest/labs.py                              # load all known tournaments
+    python ingest/labs.py --discover                   # + find & add new ones from Labs
     python ingest/labs.py --season 2026                # load one season only
+    python ingest/labs.py --current-rotation           # only post-April-1 events
     python ingest/labs.py --id 0063                    # reload a single tournament
     python ingest/labs.py --dry-run                    # fetch only, print sample
     python ingest/labs.py --with-decklists             # scrape match+decklist data (top 64)
     python ingest/labs.py --with-decklists --top-n 128 # scrape top 128 per tournament
     python ingest/labs.py --with-decklists --all-players  # scrape full field (all standings)
+    python ingest/labs.py --discover --with-decklists --current-rotation  # nightly auto-scrape
     python ingest/labs.py --id 0063 --with-decklists --force  # re-scrape even if cached
 """
 import argparse
@@ -47,6 +54,113 @@ SEASON_WEIGHT = {
     "2026": 1.0,
     "2025": 0.5,
 }
+
+
+# ---------------------------------------------------------------------------
+# Auto-discovery — find new tournaments from the Labs index page
+# ---------------------------------------------------------------------------
+_MONTHS = {}
+for _i, (_full, _abbr) in enumerate([
+    ("January", "Jan"), ("February", "Feb"), ("March", "Mar"), ("April", "Apr"),
+    ("May", "May"), ("June", "Jun"), ("July", "Jul"), ("August", "Aug"),
+    ("September", "Sep"), ("October", "Oct"), ("November", "Nov"), ("December", "Dec"),
+], 1):
+    _MONTHS[_full.lower()] = _i
+    _MONTHS[_abbr.lower()] = _i
+
+
+def _parse_date_range(text: str) -> str | None:
+    """Parse a Labs date label to the event's END date as ISO 'YYYY-MM-DD'.
+
+    Handles full + abbreviated month names, same-month ranges ('April 25-26'),
+    cross-month ranges ('February 27-March 1'), and single days ('May 16').
+    """
+    t = text.replace("–", "-").replace("—", "-").strip()
+    ym = re.search(r"(\d{4})", t)
+    if not ym:
+        return None
+    year = int(ym.group(1))
+    core = t[: ym.start()].strip().rstrip(",").strip()
+    segs = [s.strip() for s in core.split("-")]
+
+    def _month_day(seg, fallback_month=None):
+        mm = re.search(r"([A-Za-z]+)", seg)
+        dd = re.search(r"(\d{1,2})", seg)
+        month = _MONTHS.get(mm.group(1).lower()) if mm else fallback_month
+        day = int(dd.group(1)) if dd else None
+        return month, day
+
+    sm, sd = _month_day(segs[0])
+    em, ed = _month_day(segs[-1], fallback_month=sm)
+    month, day = (em or sm), (ed or sd)
+    if not month or not day:
+        return None
+    return f"{year:04d}-{month:02d}-{int(day):02d}"
+
+
+def _classify_tier(name: str, logo_src: str = "") -> str:
+    """Infer tier from the tournament name and logo path (regional/special/...)."""
+    hay = (logo_src + " " + name).lower()
+    if "world" in hay:
+        return "worlds"
+    if "international" in hay:
+        return "international"
+    if "special" in hay:
+        return "special"
+    if "regional" in hay:
+        return "regional"
+    return "other"
+
+
+def _season_for_date(iso_date: str) -> str:
+    """PTCG competitive season rolls over in September; season = later year."""
+    y, m = int(iso_date[:4]), int(iso_date[5:7])
+    return str(y + 1 if m >= 9 else y)
+
+
+def _rotation_cutoff() -> str:
+    """ISO date of the most recent April 1 — the current Standard rotation start.
+    Mirrors dashboard/app.py _rotation_cutoff() so ingest and serving agree."""
+    from datetime import date
+    today = date.today()
+    year = today.year if (today.month, today.day) >= (4, 1) else today.year - 1
+    return f"{year}-04-01"
+
+
+def discover_tournaments() -> list[dict]:
+    """Scrape the Labs index page for every listed tournament and parse its
+    metadata. Returns curated-shaped dicts: {id, name, date, location, tier, season}.
+
+    The index lists tournaments newest-first, so brand-new events appear here
+    within hours of results posting — no manual JSON edit required.
+    """
+    resp = requests.get(f"{LABS_BASE}/", timeout=30)
+    resp.raise_for_status()
+    soup = BeautifulSoup(resp.content, "html.parser")
+    out: list[dict] = []
+    for a in soup.find_all("a", href=re.compile(r"^/\d{4}")):
+        m = re.match(r"^/(\d{4})", a.get("href", ""))
+        if not m:
+            continue
+        tid = m.group(1)
+        name_el = a.find("div", class_=re.compile(r"font-bold"))
+        name = name_el.get_text(strip=True) if name_el else None
+        if not name:
+            continue
+        logo = a.find("img", alt=re.compile("logo"))
+        logo_src = logo.get("src", "") if logo else ""
+        flag = a.find("img", src=re.compile(r"/flags/"))
+        country = (flag.get("title") or flag.get("alt")) if flag else None
+        date_div = a.find("div", class_=re.compile("items-center"))
+        iso = _parse_date_range(date_div.get_text(" ", strip=True) if date_div else "")
+        if not iso:
+            log.warning(f"  discovery: could not parse date for {tid} {name}")
+            continue
+        out.append({
+            "id": tid, "name": name, "date": iso, "location": country,
+            "tier": _classify_tier(name, logo_src), "season": _season_for_date(iso),
+        })
+    return out
 
 
 # ---------------------------------------------------------------------------
@@ -513,6 +627,12 @@ def main():
     parser.add_argument("--season", help="Only load this season (e.g. 2026)")
     parser.add_argument("--id", help="Load a single tournament by Labs ID (e.g. 0063)")
     parser.add_argument("--dry-run", action="store_true")
+    parser.add_argument("--discover", action="store_true",
+                        help="Scrape the Labs index for new tournaments and add them to "
+                             "the registry before scraping. Requires no manual JSON edits.")
+    parser.add_argument("--current-rotation", action="store_true",
+                        help="Only process tournaments on/after the most recent April 1 "
+                             "rotation cutoff (the currently-legal Standard pool).")
     parser.add_argument("--with-decklists", action="store_true",
                         help="Also scrape round-by-round matches and full decklists for top-N players")
     parser.add_argument("--top-n", type=int, default=64,
@@ -524,31 +644,99 @@ def main():
                         help="Re-scrape even if match/decklist data already exists")
     args = parser.parse_args()
 
-    tournaments = load_curated()
-
-    if args.id:
-        tournaments = [t for t in tournaments if t["id"] == args.id]
-    elif args.season:
-        tournaments = [t for t in tournaments if t["season"] == args.season]
-
-    if not tournaments:
-        log.error("No tournaments matched — check --id or --season value")
-        sys.exit(1)
-
-    log.info(f"Processing {len(tournaments)} tournament(s)...")
-
+    # --- Dry-run: side-effect-free preview from the curated list (+ optional discovery) ---
     if args.dry_run:
-        sample = fetch_standings(tournaments[0]["id"])
-        print(f"\n{tournaments[0]['name']} — {len(sample)} standings")
+        pool = {t["id"]: t for t in load_curated()}
+        if args.discover:
+            try:
+                for t in discover_tournaments():
+                    pool.setdefault(t["id"], t)
+            except Exception as e:
+                log.warning(f"Discovery failed: {e}")
+        pool = list(pool.values())
+        if args.id:
+            pool = [t for t in pool if t["id"] == args.id]
+        elif args.season:
+            pool = [t for t in pool if t["season"] == args.season]
+        if not pool:
+            log.error("No tournaments matched — check --id or --season value")
+            sys.exit(1)
+        sample = fetch_standings(pool[0]["id"])
+        print(f"\n{pool[0]['name']} — {len(sample)} standings")
         for s in sample[:5]:
             print(f"  #{s['placing']:3d} {s['player_name']:<25} {s['wins']}-{s['losses']}-{s['ties']}  {s['deck_name'] or '—'}")
         return
 
-    # Schema setup — brief write connection, closed immediately so dashboard reads
-    # can proceed while the long scrape loop runs.
+    # --- Ensure schema, then seed the tournament registry from the curated JSON.
+    #     ON CONFLICT DO NOTHING preserves any manual corrections already in the DB. ---
     conn = get_conn()
     ensure_schema(conn)
+    for t in load_curated():
+        upsert_tournament(conn, t)
+    conn.commit()
     conn.close()
+
+    def _seed_discovered():
+        """Scrape the Labs index and add any tournaments not yet in the registry."""
+        try:
+            discovered = discover_tournaments()
+        except Exception as e:
+            log.warning(f"Discovery failed (continuing with known tournaments): {e}")
+            return
+        c = get_conn()
+        try:
+            known = {r[0] for r in c.execute("SELECT labs_id FROM raw.major_tournaments").fetchall()}
+            new = 0
+            for t in discovered:
+                if t["id"] not in known:
+                    upsert_tournament(c, t)
+                    new += 1
+                    log.info(f"  discovered NEW: {t['id']} {t['date']} {t['tier']:<11} {t['name']}")
+            c.commit()
+        finally:
+            c.close()
+        log.info(f"Discovery: {len(discovered)} listed on Labs, {new} new added to registry")
+
+    def _load_worklist():
+        """Work-list comes from the DB (persists across deploys), newest-first."""
+        c = get_conn()
+        try:
+            rows = c.execute("""
+                SELECT labs_id, name, CAST(tournament_date AS VARCHAR), location, tier, season
+                FROM raw.major_tournaments
+                ORDER BY tournament_date DESC
+            """).fetchall()
+        finally:
+            c.close()
+        return [{"id": r[0], "name": r[1], "date": r[2],
+                 "location": r[3], "tier": r[4], "season": r[5]} for r in rows]
+
+    if args.discover:
+        _seed_discovered()
+
+    tournaments = _load_worklist()
+
+    # If --id targets a tournament we don't know yet, discover once to resolve it.
+    if args.id and not args.discover and not any(t["id"] == args.id for t in tournaments):
+        _seed_discovered()
+        tournaments = _load_worklist()
+
+    # --- Filters ---
+    if args.id:
+        tournaments = [t for t in tournaments if t["id"] == args.id]
+    elif args.season:
+        tournaments = [t for t in tournaments if t["season"] == args.season]
+    if args.current_rotation:
+        cutoff = _rotation_cutoff()
+        before = len(tournaments)
+        tournaments = [t for t in tournaments if t["date"] >= cutoff]
+        log.info(f"Current-rotation filter (>= {cutoff}): {len(tournaments)}/{before} tournaments")
+
+    if not tournaments:
+        log.error("No tournaments matched — check --id / --season / --current-rotation")
+        sys.exit(1)
+
+    log.info(f"Processing {len(tournaments)} tournament(s)...")
 
     for t in tournaments:
         # Open a fresh write connection per tournament so DuckDB is only locked

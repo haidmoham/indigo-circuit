@@ -1380,7 +1380,10 @@ def _run_pipeline():
 
     base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     steps = [
-        ["python3", "ingest/labs.py"],
+        # Auto-discover new majors from the Labs index, then scrape standings +
+        # top-64 decklists for the current rotation only. Incremental: already-
+        # cached players are skipped, so after catch-up this is just new events.
+        ["python3", "ingest/labs.py", "--discover", "--with-decklists", "--current-rotation"],
         ["python3", "ingest/load.py"],
         ["python3", "ingest/glicko.py"],
         ["bash",    "ingest/pipeline.sh", "--dbt-only"],
@@ -1388,8 +1391,9 @@ def _run_pipeline():
 
     success = True
     try:
-        # Per-step timeouts: load.py can take 60+ min on first seed
-        timeouts = {"ingest/load.py": 7200, "ingest/labs.py": 1800,
+        # Per-step timeouts: load.py can take 60+ min on first seed; labs.py now
+        # scrapes current-rotation decklists so it gets a generous (incremental) window.
+        timeouts = {"ingest/load.py": 7200, "ingest/labs.py": 7200,
                     "ingest/glicko.py": 600, "ingest/pipeline.sh": 600}
         for cmd in steps:
             step_timeout = timeouts.get(cmd[1], 1800)
@@ -1591,7 +1595,7 @@ def _run_majors_scrape():
 
     base = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     steps = [
-        (["python3", "ingest/labs.py", "--with-decklists", "--all-players"], 28800),  # 8h
+        (["python3", "ingest/labs.py", "--discover", "--with-decklists", "--all-players"], 28800),  # 8h
         (["bash", "ingest/pipeline.sh", "--dbt-only"], 600),
     ]
 
