@@ -88,7 +88,7 @@ raw.decklists      — card_name, card_category, card_count per player per tourn
 
 ### Majors (from labs.py)
 ```
-raw.major_tournaments  — curated from data/major_tournaments.json
+raw.major_tournaments  — auto-discovered from Labs index; seeded by data/major_tournaments.json (DB is source of truth)
 raw.major_standings    — same shape as raw.standings
 raw.major_matches      — opponent_name, opponent_deck_id (scraped from Labs player pages)
 raw.major_decklists    — same shape as raw.decklists
@@ -139,15 +139,19 @@ raw.major_decklists    — same shape as raw.decklists
 
 Nightly pipeline runs at 06:00 UTC inside the gunicorn process (scheduler thread in app.py):
 
-1. `python3 ingest/labs.py` — refresh majors standings
+1. `python3 ingest/labs.py --discover --with-decklists --current-rotation` — auto-discover new majors from the Labs index, then scrape standings + top-64 decklists for post-April-1 events (incremental; cached players skipped)
 2. `python3 ingest/load.py` — refresh online tournaments
 3. `python3 ingest/glicko.py` — recompute Glicko-2 ratings
 4. `bash ingest/pipeline.sh --dbt-only` — rebuild all dbt marts
 
+**Auto-discovery (no manual JSON edits):** `discover_tournaments()` scrapes the Labs landing page and parses id/name/date/tier/location/season for every listed event. `--discover` adds any not-yet-known event to `raw.major_tournaments`. The DB — not the JSON — is the scrape work-list, so discovered events survive deploys. New regionals are picked up within a day of results posting.
+
+**Rotation:** `--current-rotation` and the `major_*` dbt marts both filter to `tournament_date >= _rotation_cutoff()` (most recent April 1). Each April this self-advances: rotated-out archetypes drop from the marts automatically, and the meta re-forms as new post-cutoff events are scraped. No code change needed at rotation.
+
 DuckDB write lock management: signal file at `/data/pipeline_writing` blocks gunicorn reads during writes. Labs.py uses per-tournament connections so the lock is held only during brief write bursts (~seconds), not the full run duration.
 
-**Majors full-field scrape** (separate, run manually or via admin endpoint):  
-`POST /admin/run-majors-scrape` — runs `labs.py --with-decklists --all-players` (8h timeout) followed by dbt. Incremental: already-scraped players are skipped.
+**Majors full-field backfill** (separate, run manually or via admin endpoint):  
+`POST /admin/run-majors-scrape` — runs `labs.py --discover --with-decklists --all-players` (8h timeout) followed by dbt. Use to scrape the full field (not just top-64); incremental, so already-scraped players are skipped.
 
 ---
 
