@@ -131,6 +131,7 @@ raw.major_decklists    — same shape as raw.decklists
 | `GET /api/ev/archetypes` | Available archetypes for manual override |
 | `POST /admin/run-pipeline` | Trigger nightly pipeline (X-Admin-Secret header) |
 | `POST /admin/run-majors-scrape` | Trigger full-field majors decklist scrape |
+| `GET /admin/pipeline-health?secret=` | Last validation-gate decision (pass/reject + why) |
 | `GET /admin/db-holders` | Debug — show processes holding DuckDB fds |
 
 ---
@@ -147,6 +148,8 @@ Nightly pipeline runs at 06:00 UTC inside the gunicorn process (scheduler thread
 **Auto-discovery (no manual JSON edits):** `discover_tournaments()` scrapes the Labs landing page and parses id/name/date/tier/location/season for every listed event. `--discover` adds any not-yet-known event to `raw.major_tournaments`. The DB — not the JSON — is the scrape work-list, so discovered events survive deploys. New regionals are picked up within a day of results posting.
 
 **Rotation:** `--current-rotation` and the `major_*` dbt marts both filter to `tournament_date >= _rotation_cutoff()` (most recent April 1). Each April this self-advances: rotated-out archetypes drop from the marts automatically, and the meta re-forms as new post-cutoff events are scraped. No code change needed at rotation.
+
+**Validation gate (maker/checker).** Between the dbt build and the atomic swap, `dashboard/pipeline_gate.py::validate_shadow()` opens the freshly-built shadow read-only and asserts invariants: marts schema present; online marts above absolute floors AND not regressed >50% vs live; majors marts not missing (catalog/build failure) and non-empty *unless* there are genuinely no current-rotation decklists yet (legit early-April state); and no rotated archetype leaked into `major_card_archetype_stats`. Any failure → shadow discarded, last-known-good live DB kept, decision written to `/data/last_gate.json` (see `GET /admin/pipeline-health`). Fail-closed: a gate error counts as rejection. Adversarially tested by `scripts/test_pipeline_gate.py` (good + 6 broken fixtures). This is what catches the failure modes that previously went live silently (empty marts from the dbt catalog bug, rotated archetypes, a scrape that returned nothing).
 
 DuckDB write lock management: signal file at `/data/pipeline_writing` blocks gunicorn reads during writes. Labs.py uses per-tournament connections so the lock is held only during brief write bursts (~seconds), not the full run duration.
 

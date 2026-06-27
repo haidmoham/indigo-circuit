@@ -1264,6 +1264,18 @@ import subprocess
 
 _PIPELINE_LOCK = str(Path(DUCKDB_PATH).parent / "pipeline.lock")
 
+# Last validation-gate decision, written on every pipeline run (pass or reject)
+# and surfaced by GET /admin/pipeline-health.
+_GATE_RESULT_FILE = str(Path(DUCKDB_PATH).parent / "last_gate.json")
+
+
+def _write_gate_result(record: dict) -> None:
+    try:
+        with open(_GATE_RESULT_FILE, "w") as f:
+            json.dump(record, f)
+    except Exception as e:
+        app.logger.warning(f"[pipeline] could not write gate result: {e}")
+
 
 def _pid_has_duckdb_open(pid: int) -> bool:
     """Return True if any fd of pid points at the DuckDB file."""
@@ -1336,6 +1348,7 @@ def _kill_db_holders(logger) -> None:
 def _run_pipeline():
     global _pipeline_running
     log = app.logger
+    from .pipeline_gate import validate_shadow, result_record
 
     # File-based mutex: only one gunicorn worker runs the pipeline at a time.
     # (Each worker spawns its own scheduler thread; without this they'd race.)
@@ -1422,20 +1435,40 @@ def _run_pipeline():
                 break
     finally:
         if using_shadow:
+            published = False
             if success and os.path.exists(shadow):
-                # Atomic swap: brief signal file window (<1 second)
-                Path(_PIPELINE_SIGNAL).touch()
-                time.sleep(0.5)  # let any in-flight reads close their connections
+                # CHECKER: validate the freshly-built shadow before publishing.
+                # A failed invariant keeps the last-known-good live DB and turns
+                # silent corruption into a logged, self-describing rejection.
                 try:
-                    os.replace(shadow, DUCKDB_PATH)
-                    log.info("[pipeline] Shadow DB swapped to live")
+                    gate_ok, gate_fail, gate_metrics = validate_shadow(
+                        shadow, DUCKDB_PATH, marts_schema=MARTS)
                 except Exception as e:
-                    log.error(f"[pipeline] Shadow swap failed: {e}")
-                finally:
-                    Path(_PIPELINE_SIGNAL).unlink(missing_ok=True)
-            else:
-                # Pipeline failed — discard shadow, live DB untouched
-                log.info("[pipeline] Pipeline failed — shadow discarded, live DB unchanged")
+                    gate_ok, gate_fail, gate_metrics = False, [f"gate crashed: {e}"], {}
+
+                if gate_ok:
+                    # Atomic swap: brief signal file window (<1 second)
+                    Path(_PIPELINE_SIGNAL).touch()
+                    time.sleep(0.5)  # let any in-flight reads close their connections
+                    try:
+                        os.replace(shadow, DUCKDB_PATH)
+                        published = True
+                        log.info("[pipeline] Gate passed — shadow DB swapped to live")
+                    except Exception as e:
+                        log.error(f"[pipeline] Shadow swap failed: {e}")
+                    finally:
+                        Path(_PIPELINE_SIGNAL).unlink(missing_ok=True)
+                    _write_gate_result(result_record(
+                        published, [] if published else ["swap failed after gate pass"],
+                        gate_metrics, "swapped" if published else "discarded"))
+                else:
+                    log.error(f"[pipeline] GATE REJECTED swap — live DB kept. Failures: {gate_fail}")
+                    _write_gate_result(result_record(False, gate_fail, gate_metrics, "discarded"))
+            elif not success:
+                log.info("[pipeline] Pipeline failed — shadow discarded, live DB untouched")
+
+            # Discard whatever shadow remains (no-op once it has been swapped in).
+            if not published:
                 Path(shadow).unlink(missing_ok=True)
                 try:
                     Path(shadow + ".wal").unlink(missing_ok=True)
@@ -1499,6 +1532,22 @@ except Exception:
 
 if not os.environ.get("DISABLE_SCHEDULER"):
     _start_scheduler()
+
+
+@app.get("/admin/pipeline-health")
+def admin_pipeline_health():
+    """Last validation-gate decision: did the most recent pipeline run pass the
+    checker and swap, or was it rejected (and why)? One curl, no log digging."""
+    secret = os.environ.get("ADMIN_SECRET", "")
+    if not secret or request.args.get("secret") != secret:
+        return jsonify({"error": "unauthorized"}), 403
+    try:
+        with open(_GATE_RESULT_FILE) as f:
+            return jsonify(json.load(f))
+    except FileNotFoundError:
+        return jsonify({"status": "no pipeline run recorded yet"}), 200
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/admin/db-holders")
