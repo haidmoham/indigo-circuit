@@ -20,10 +20,10 @@ player_matches as (
     select
         labs_tournament_id  as tournament_id,
         player_id,
-        (result = 'W')::int as won,
+        (result = 'Win')::int as won,
         opponent_deck_id    as opp_deck_id
     from {{ source('ptcg_raw', 'major_matches') }}
-    where result in ('W', 'L')
+    where result in ('Win', 'Loss')
       and opponent_deck_id is not null
       and labs_tournament_id in (select labs_id from current_tournaments)
 ),
