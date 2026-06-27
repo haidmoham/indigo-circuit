@@ -18,6 +18,8 @@ import re
 from dataclasses import dataclass, field
 from typing import Optional
 
+from .pipeline_gate import rotation_cutoff
+
 DEFAULT_PRIOR_STRENGTH: int = 30   # phantom match count; raise = more conservative
 MIN_SCOREABLE_MATCHES:  int = 20   # min real matches on either side to trust a delta
 MIN_COPY_SCOREABLE:     int = 10   # min matches in a copy bucket to use copy modeling
@@ -357,27 +359,50 @@ def detect_archetype(decklist: list[dict], conn,
 # ---------------------------------------------------------------------------
 
 def _meta_shares(conn, source: str = "online") -> dict[str, float]:
-    """Fraction of tournament lists per archetype for the given source."""
+    """Fraction of tournament lists per archetype for the given source.
+
+    Restricted to the current Standard rotation: only tournaments on/after the
+    most recent April 1 count. PTCG rotates the legal card pool each April, so
+    without this filter rotated-out archetypes (Charizard, Gardevoir, Gholdengo)
+    leak into Matchup Focus and the meta-weighted baseline. Same cutoff app.py
+    and the pipeline gate enforce — see _rotation_cutoff() / rotation_cutoff().
+    """
+    cutoff = rotation_cutoff()
     if source == "both":
         rows = conn.execute("""
             SELECT deck_id, COUNT(*) as n
             FROM (
-                SELECT deck_id FROM raw.standings WHERE deck_id IS NOT NULL
+                SELECT s.deck_id
+                FROM raw.standings s
+                JOIN raw.tournaments t ON s.tournament_id = t.id
+                WHERE s.deck_id IS NOT NULL AND t.tournament_date >= ?
                 UNION ALL
-                SELECT deck_id FROM raw.major_standings WHERE deck_id IS NOT NULL
+                SELECT ms.deck_id
+                FROM raw.major_standings ms
+                JOIN raw.major_tournaments mt ON ms.labs_tournament_id = mt.labs_id
+                WHERE ms.deck_id IS NOT NULL AND mt.tournament_date >= ?
             ) sub
             GROUP BY deck_id
             HAVING COUNT(*) >= ?
-        """, (MIN_ARCHETYPE_LISTS,)).fetchall()
-    else:
-        t = _tables(source)
-        rows = conn.execute(f"""
-            SELECT deck_id, COUNT(*) as n
-            FROM {t['standings']}
-            WHERE deck_id IS NOT NULL
-            GROUP BY deck_id
+        """, (cutoff, cutoff, MIN_ARCHETYPE_LISTS)).fetchall()
+    elif source == "majors":
+        rows = conn.execute("""
+            SELECT ms.deck_id, COUNT(*) as n
+            FROM raw.major_standings ms
+            JOIN raw.major_tournaments mt ON ms.labs_tournament_id = mt.labs_id
+            WHERE ms.deck_id IS NOT NULL AND mt.tournament_date >= ?
+            GROUP BY ms.deck_id
             HAVING COUNT(*) >= ?
-        """, (MIN_ARCHETYPE_LISTS,)).fetchall()
+        """, (cutoff, MIN_ARCHETYPE_LISTS)).fetchall()
+    else:  # online
+        rows = conn.execute("""
+            SELECT s.deck_id, COUNT(*) as n
+            FROM raw.standings s
+            JOIN raw.tournaments t ON s.tournament_id = t.id
+            WHERE s.deck_id IS NOT NULL AND t.tournament_date >= ?
+            GROUP BY s.deck_id
+            HAVING COUNT(*) >= ?
+        """, (cutoff, MIN_ARCHETYPE_LISTS)).fetchall()
 
     total = sum(r[1] for r in rows)
     if total == 0:
@@ -386,22 +411,30 @@ def _meta_shares(conn, source: str = "online") -> dict[str, float]:
 
 
 def _deck_names(conn, source: str = "online") -> dict[str, str]:
-    """deck_id → deck_name lookup."""
-    if source == "both":
-        rows = conn.execute("""
-            SELECT deck_id, deck_name FROM raw.standings
+    """deck_id → display name.
+
+    The online feed labels archetypes descriptively ("Dragapult Dusknoir"); the
+    majors feed often stores only the bare sprite base ("dragapult"), so several
+    distinct decks collapse to one label. Layer online names on top of majors
+    names (shared deck_id namespace) so each post-rotation deck stays
+    distinguishable in Matchup Focus instead of rendering as duplicate chips.
+    """
+    names: dict[str, str] = {}
+    if source in ("majors", "both"):
+        for did, name in conn.execute("""
+            SELECT DISTINCT deck_id, deck_name FROM raw.major_standings
             WHERE deck_id IS NOT NULL AND deck_name IS NOT NULL
-            UNION
-            SELECT deck_id, deck_name FROM raw.major_standings
+        """).fetchall():
+            names[did] = name
+    if source in ("online", "both", "majors"):
+        # Online labels win on collision — they distinguish deck variants the
+        # majors sprite base does not.
+        for did, name in conn.execute("""
+            SELECT DISTINCT deck_id, deck_name FROM raw.standings
             WHERE deck_id IS NOT NULL AND deck_name IS NOT NULL
-        """).fetchall()
-    else:
-        t = _tables(source)
-        rows = conn.execute(f"""
-            SELECT DISTINCT deck_id, deck_name FROM {t['standings']}
-            WHERE deck_id IS NOT NULL AND deck_name IS NOT NULL
-        """).fetchall()
-    return {r[0]: r[1] for r in rows}
+        """).fetchall():
+            names[did] = name
+    return names
 
 
 # ---------------------------------------------------------------------------
