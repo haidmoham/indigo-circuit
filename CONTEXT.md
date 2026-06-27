@@ -90,7 +90,7 @@ raw.decklists      — card_name, card_category, card_count per player per tourn
 ```
 raw.major_tournaments  — auto-discovered from Labs index; seeded by data/major_tournaments.json (DB is source of truth)
 raw.major_standings    — same shape as raw.standings
-raw.major_matches      — opponent_name, opponent_deck_id (scraped from Labs player pages)
+raw.major_matches      — result is 'Win'/'Loss'/'Tie' (NOT 'W'/'L'); opponent_deck_id is ALWAYS null — resolve the opponent's deck by joining opponent_name -> standings.player_name -> deck_id
 raw.major_decklists    — same shape as raw.decklists
 ```
 
