@@ -9,8 +9,7 @@
 <div id="report" style="display:none">
 
   <!-- Header ---------------------------------------------------------------->
-  <div style="display:flex;align-items:flex-start;justify-content:space-between;
-              gap:1.5rem;margin-bottom:1.75rem;flex-wrap:wrap">
+  <div class="page-intro">
 
     <div style="display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap">
       <!-- Deck sprite (top deck) -->
@@ -20,7 +19,7 @@
       </div>
       <div>
         <div style="display:flex;align-items:center;gap:0.6rem;flex-wrap:wrap;margin-bottom:0.35rem">
-          <h1 id="player-name" style="font-size:1.9rem;font-weight:900;line-height:1"></h1>
+          <h1 id="player-name" class="page-title player-title"></h1>
           <span id="player-country" style="font-size:1rem;color:var(--muted)"></span>
         </div>
         <!-- Title badges -->
@@ -191,16 +190,16 @@ async function load() {
     hoverinfo: 'text',
   }], {
     paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
-    font: { color: 'var(--text)', family: 'Nunito, sans-serif', size: 11 },
+    font: { color: getComputedStyle(document.documentElement).getPropertyValue('--text').trim(), family: 'DM Sans, sans-serif', size: 11 },
     yaxis: {
       autorange: 'reversed', title: 'Placing (lower = better)',
       gridcolor: 'rgba(255,255,255,0.05)', zerolinecolor: 'rgba(255,255,255,0.1)',
     },
     xaxis: { gridcolor: 'rgba(255,255,255,0.05)' },
     margin: { t: 10, l: 55, r: 10, b: 45 },
-    hoverlabel: { bgcolor: '#1a1640', font: { color: '#fff', size: 12 } },
+    hoverlabel: { bgcolor: '#152630', font: { color: '#fff', size: 12 } },
     showlegend: false,
-  }, { displayModeBar: false });
+  }, { displayModeBar: false, responsive: true });
 
   // ── Archetype breakdown ──────────────────────────────────────────────────
   if (archetypes.length) {
@@ -219,15 +218,15 @@ async function load() {
       hovertemplate: '<b>%{y}</b><br>%{x} events · %{text}<extra></extra>',
     }], {
       paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
-      font: { color: 'var(--text)', family: 'Nunito, sans-serif', size: 11 },
+      font: { color: getComputedStyle(document.documentElement).getPropertyValue('--text').trim(), family: 'DM Sans, sans-serif', size: 11 },
       xaxis: {
         title: 'Events played', gridcolor: 'rgba(255,255,255,0.05)',
         zerolinecolor: 'rgba(255,255,255,0.1)',
       },
       yaxis: { gridcolor: 'rgba(255,255,255,0.05)' },
       margin: { t: 8, l: 130, r: 50, b: 40 },
-      hoverlabel: { bgcolor: '#1a1640', font: { color: '#fff', size: 12 } },
-    }, { displayModeBar: false });
+      hoverlabel: { bgcolor: '#152630', font: { color: '#fff', size: 12 } },
+    }, { displayModeBar: false, responsive: true });
   } else {
     document.getElementById('chart-archetypes').innerHTML =
       `<div style="color:var(--muted);font-size:0.8rem;padding:1rem 0">No archetype data available</div>`;

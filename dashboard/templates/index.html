@@ -2,8 +2,15 @@
 {% block title %}Indigo Circuit — Search{% endblock %}
 
 {% block content %}
+<div class="page-intro">
+  <div>
+    <p class="page-eyebrow">the people behind the decks</p>
+    <h1 class="page-title">find a player.</h1>
+    <p class="page-description">Explore tournament histories, signature decks, and the path through a season.</p>
+  </div>
+</div>
 <div class="search-bar">
-  <input id="q" type="text" placeholder="Search player name…" autocomplete="off" autofocus />
+  <input id="q" type="search" aria-label="search player name" placeholder="search player name…" autocomplete="off" />
 </div>
 <div id="results">
   <div style="color:var(--muted);font-size:0.82rem;padding:0.5rem 0;letter-spacing:0.03em">
@@ -97,6 +104,4 @@ input.addEventListener('input', () => {
   }, 200);
 });
 
-// Focus the input on page load
-input.focus();
 {% endblock %}

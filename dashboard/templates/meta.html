@@ -9,16 +9,15 @@
 <div id="meta-wrap" style="display:none">
 
   <!-- Header -->
-  <div style="display:flex;align-items:flex-end;justify-content:space-between;
-              flex-wrap:wrap;gap:1rem;margin-bottom:2rem">
+  <div class="page-intro">
     <div>
-      <h1 style="font-size:1.6rem;font-weight:900;line-height:1.1">Meta Breakdown</h1>
-      <p id="format-label" style="color:var(--muted);font-size:0.8rem;font-weight:600;
-         margin-top:0.25rem;letter-spacing:0.04em;text-transform:uppercase"></p>
+      <p class="page-eyebrow">a changing field</p>
+      <h1 class="page-title">the metagame.</h1>
+      <p id="format-label" class="page-description"></p>
     </div>
     <div style="display:flex;align-items:center;gap:1.25rem;flex-wrap:wrap">
       <!-- Format selector -->
-      <select id="format-select"
+      <select id="format-select" aria-label="tournament format"
         style="background:var(--surface);color:var(--text);border:1px solid var(--border);
                border-radius:8px;padding:0.4rem 0.75rem;font-size:0.8rem;font-weight:700;
                font-family:inherit;letter-spacing:0.04em;cursor:pointer;outline:none;
@@ -221,11 +220,11 @@ async function load(sinceOverride) {
 
   const plotLayout = {
     paper_bgcolor: 'transparent', plot_bgcolor: 'transparent',
-    font: { color: 'var(--text)', family: 'Nunito, sans-serif', size: 11 },
+    font: { color: getComputedStyle(document.documentElement).getPropertyValue('--text').trim(), family: 'DM Sans, sans-serif', size: 11 },
     margin: { t: 8, b: 32, l: 150, r: 16 },
     xaxis: { gridcolor: 'rgba(255,255,255,0.05)', zerolinecolor: 'rgba(255,255,255,0.1)' },
     yaxis: { gridcolor: 'rgba(255,255,255,0.05)' },
-    hoverlabel: { bgcolor: '#1a1640', font: { color: '#fff', size: 12 } },
+    hoverlabel: { bgcolor: '#152630', font: { color: '#fff', size: 12 } },
   };
 
   Plotly.newPlot('chart-share', [{
@@ -242,7 +241,7 @@ async function load(sinceOverride) {
     textposition: 'outside',
     marker: { color: chartColors },
     hovertemplate: '<b>%{y}</b><br>%{x}% of field<extra></extra>',
-  }], { ...plotLayout, xaxis: { ...plotLayout.xaxis, title: '% of field' } }, { displayModeBar: false });
+  }], { ...plotLayout, xaxis: { ...plotLayout.xaxis, title: '% of field' } }, { displayModeBar: false, responsive: true });
 
   Plotly.newPlot('chart-bubble', [{
     type: 'scatter', mode: 'markers+text',
@@ -265,7 +264,7 @@ async function load(sinceOverride) {
     margin: { t: 8, b: 40, l: 48, r: 16 },
     xaxis: { ...plotLayout.xaxis, title: 'Tournament entries' },
     yaxis: { ...plotLayout.yaxis, title: 'Day 2 conversion %' },
-  }, { displayModeBar: false });
+  }, { displayModeBar: false, responsive: true });
 }
 
 initFormatSelector().then(() => load());

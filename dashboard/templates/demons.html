@@ -2,6 +2,13 @@
 {% block title %}Indigo Circuit — Limitless Demons{% endblock %}
 
 {% block content %}
+<div class="page-intro">
+  <div>
+    <p class="page-eyebrow">the online circuit</p>
+    <h1 class="page-title">limitless demons.</h1>
+    <p class="page-description">The online ladder's leading players and archetype specialists.</p>
+  </div>
+</div>
 <div id="loading" class="loading-state">
   <div class="spinner"></div><span>Summoning demons…</span>
 </div>
@@ -14,8 +21,8 @@
   <!-- Admins -->
   <div style="margin-bottom: 3rem">
     <div class="section-header">
-      <span class="label" style="color:#e53e3e">☠ Admins</span>
-      <div class="line" style="background:linear-gradient(90deg,#e53e3e44,transparent)"></div>
+      <span class="label" style="color:#efa69d">☠ Admins</span>
+      <div class="line" style="background:linear-gradient(90deg,#efa69d44,transparent)"></div>
     </div>
     <div id="admins" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(270px,1fr));gap:1rem"></div>
   </div>
@@ -23,8 +30,8 @@
   <!-- Ace Trainers -->
   <div>
     <div class="section-header">
-      <span class="label" style="color:#ff6d00">🔥 Ace Trainers</span>
-      <div class="line" style="background:linear-gradient(90deg,#ff6d0044,transparent)"></div>
+      <span class="label" style="color:#e7ac90">🔥 Ace Trainers</span>
+      <div class="line" style="background:linear-gradient(90deg,#e7ac9044,transparent)"></div>
       <span style="font-size:0.65rem;color:var(--muted);font-weight:700;letter-spacing:0.08em;text-transform:uppercase">Top 8 Online Archetypes</span>
     </div>
     <div id="ace-trainers" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(230px,1fr));gap:0.85rem"></div>
@@ -35,8 +42,8 @@
 
 {% block scripts %}
 // Demon colour constants
-const D_RED    = '#e53e3e';
-const D_FIRE   = '#ff6d00';
+const D_RED    = '#efa69d';
+const D_FIRE   = '#e7ac90';
 const D_DARK   = 'rgba(229,62,62,0.18)';
 const D_GLOW   = 'rgba(229,62,62,0.25)';
 const D_GLOW2  = 'rgba(255,109,0,0.18)';
@@ -83,11 +90,7 @@ async function load() {
     const sprite   = getSprite(null, deckName);
 
     document.getElementById('boss-section').innerHTML = `
-      <div class="boss-card" style="
-        background: linear-gradient(135deg, #1a0505 0%, #200808 100%);
-        border: 2px solid ${D_RED};
-        border-radius: 16px; padding: 2rem;
-      ">
+      <div class="champion-card boss-card" style="--type-color:${D_RED}">
         <div style="display:flex;align-items:center;gap:2rem;flex-wrap:wrap">
           ${sprite ? `<img src="${sprite}" alt="${deckName}"
             style="width:96px;height:96px;object-fit:contain;image-rendering:pixelated;
@@ -149,14 +152,7 @@ async function load() {
     const sprite   = getSprite(null, deckName);
 
     return `
-    <div style="
-      background:var(--surface);
-      border:1.5px solid ${D_RED}44;
-      border-left:3px solid ${D_RED};
-      border-radius:14px;padding:1.25rem;
-      box-shadow:0 0 24px rgba(229,62,62,0.12);
-      position:relative;overflow:hidden;
-    ">
+    <div class="contender-card" style="--type-color:${D_RED}">
       <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.85rem">
         <span style="background:rgba(229,62,62,0.12);color:${D_RED};
           border:1px solid rgba(229,62,62,0.35);padding:0.18rem 0.55rem;
@@ -201,11 +197,7 @@ async function load() {
     const theme    = getTheme({ TOP_DECK_NAME: deckName });
 
     return `
-    <div style="
-      background:var(--surface);border-radius:12px;padding:1rem;
-      border:1px solid ${D_FIRE}33;
-      border-top:2px solid ${D_FIRE};
-    ">
+    <div class="specialist-card" style="--type-color:${D_FIRE}">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.6rem">
         <span style="background:rgba(255,109,0,0.1);color:${D_FIRE};
           border:1px solid rgba(255,109,0,0.3);padding:0.18rem 0.55rem;

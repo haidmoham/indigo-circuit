@@ -2,27 +2,27 @@
 {% block title %}Indigo Circuit — Rankings{% endblock %}
 
 {% block content %}
-<div style="display:flex;align-items:flex-start;justify-content:space-between;
-            gap:1rem;margin-bottom:1.75rem;flex-wrap:wrap">
+<div class="page-intro">
   <div>
-    <h1 style="font-size:1.6rem;font-weight:900;line-height:1.1">Rankings</h1>
-    <p style="color:var(--muted);font-size:0.8rem;font-weight:600;margin-top:0.25rem;
-              letter-spacing:0.04em;text-transform:uppercase">ATP standings · Major tournaments · Top 100</p>
+    <p class="page-eyebrow">the standings / major tournaments</p>
+    <h1 class="page-title">rankings.</h1>
+    <p class="page-description">A season in perspective. The top 100 players by ATP score.</p>
   </div>
-  <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;
-              padding:0.65rem 1rem;font-size:0.72rem;color:var(--muted);font-weight:600;
-              max-width:360px;line-height:1.6">
+</div>
+<details class="method-note">
+  <summary>about the ATP score <span aria-hidden="true">↗</span></summary>
+  <p>
     ATP score: √(field ÷ placing) × tier weight, summed across all results in the last 52 weeks.
     Tier weights: Worlds ×10 · IC ×6 · Regional ×3 · SPE ×0.75.
     6-month half-life decay keeps rankings current. Min 2 events to appear.
-  </div>
-</div>
+  </p>
+</details>
 
 <div id="loading" class="loading-state">
   <div class="spinner"></div><span>Loading rankings…</span>
 </div>
 
-<div id="table-wrap" style="display:none; overflow-x:auto">
+<div id="table-wrap" class="data-sheet" tabindex="0" role="region" aria-label="major tournament rankings" style="display:none; overflow-x:auto">
   <table id="rank-table" style="width:100%; border-collapse:collapse; font-size:0.85rem">
     <thead>
       <tr style="border-bottom:2px solid var(--border); color:var(--muted);

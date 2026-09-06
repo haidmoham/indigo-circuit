@@ -2,13 +2,12 @@
 {% block title %}Indigo Circuit — Tech Scouting{% endblock %}
 
 {% block content %}
-<div style="display:flex;align-items:flex-end;justify-content:space-between;
-            flex-wrap:wrap;gap:1rem;margin-bottom:1.75rem">
+<div class="page-intro">
   <div>
-    <h1 style="font-size:1.6rem;font-weight:900;line-height:1.1">Tech Scouting</h1>
-    <p style="color:var(--muted);font-size:0.8rem;font-weight:600;margin-top:0.25rem;
-              letter-spacing:0.04em;text-transform:uppercase">
-      Card inclusion rates · Click any card for matchup EV
+    <p class="page-eyebrow">the small choices that shape a deck</p>
+    <h1 class="page-title">tech scouting.</h1>
+    <p class="page-description">
+      Explore card inclusion rates. Open a card to see its matchup EV.
     </p>
   </div>
   <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
@@ -19,7 +18,7 @@
                 letter-spacing:0.06em;text-transform:uppercase">
       <button data-source="online"  onclick="setSource('online')"
         style="padding:0.38rem 0.75rem;cursor:pointer;border:none;background:var(--violet);
-               color:#fff;font-family:inherit;font-size:inherit;font-weight:inherit;
+               color:var(--bg);font-family:inherit;font-size:inherit;font-weight:inherit;
                letter-spacing:inherit;text-transform:inherit">Online</button>
       <button data-source="majors"  onclick="setSource('majors')"
         style="padding:0.38rem 0.75rem;cursor:pointer;border:none;background:transparent;
@@ -45,7 +44,7 @@
     <!-- Searchable deck picker -->
     <div id="deck-picker" style="position:relative;min-width:240px">
       <div style="position:relative;display:flex;align-items:center">
-        <input id="deck-search"
+        <input id="deck-search" aria-label="choose a deck"
           autocomplete="off" spellcheck="false"
           placeholder="Search decks…"
           style="width:100%;background:var(--surface);color:var(--text);
@@ -63,7 +62,7 @@
                background:var(--surface);border:1px solid var(--border);border-radius:8px;
                box-shadow:0 8px 32px rgba(0,0,0,0.5);overflow:hidden">
         <div style="padding:0.4rem 0.5rem;border-bottom:1px solid var(--border)">
-          <input id="deck-filter"
+          <input id="deck-filter" aria-label="filter decks"
             autocomplete="off" spellcheck="false"
             placeholder="Type to filter…"
             style="width:100%;background:rgba(255,255,255,0.06);color:var(--text);
@@ -123,7 +122,7 @@ function setSource(src) {
   document.querySelectorAll('#source-toggle button').forEach(btn => {
     const active = btn.dataset.source === src;
     btn.style.background = active ? 'var(--violet)' : 'transparent';
-    btn.style.color = active ? '#fff' : 'var(--muted)';
+    btn.style.color = active ? 'var(--bg)' : 'var(--muted)';
   });
   // Reload deck list and current deck if one is selected
   loadDecks();

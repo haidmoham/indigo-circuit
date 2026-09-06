@@ -2,36 +2,27 @@
 {% block title %}Indigo Circuit — Limitless Demons Rankings{% endblock %}
 
 {% block content %}
-<div style="display:flex;align-items:flex-start;justify-content:space-between;
-            gap:1rem;margin-bottom:1.75rem;flex-wrap:wrap">
+<div class="page-intro">
   <div>
-    <div style="display:flex;align-items:center;gap:0.65rem;margin-bottom:0.3rem">
-      <h1 style="font-size:1.6rem;font-weight:900;line-height:1.1">Limitless Demons</h1>
-      <span style="background:rgba(229,62,62,0.12);color:#e53e3e;
-                   border:1px solid rgba(229,62,62,0.35);border-radius:5px;
-                   font-size:0.65rem;font-weight:800;letter-spacing:0.09em;
-                   text-transform:uppercase;padding:0.2rem 0.55rem;
-                   vertical-align:middle">Full Rankings</span>
-    </div>
-    <p style="color:var(--muted);font-size:0.8rem;font-weight:600;margin-top:0;
-              letter-spacing:0.04em;text-transform:uppercase">
-      Glicko-2 ladder · Limitless online events
-    </p>
+    <p class="page-eyebrow">the standings / online tournaments</p>
+    <h1 class="page-title">online rankings.</h1>
+    <p class="page-description">The full Glicko-2 ladder, with confidence in view.</p>
   </div>
-  <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;
-              padding:0.65rem 1rem;font-size:0.72rem;color:var(--muted);font-weight:600;
-              max-width:340px;line-height:1.5">
+</div>
+<details class="method-note">
+  <summary>how confidence shapes the ladder <span aria-hidden="true">↗</span></summary>
+  <p>
     Ranked by conservative Glicko-2 estimate (rating − 2×RD). Volume is rewarded:
     low-game-count players are penalised by their high rating deviation.
     Minimum 3 events to appear.
-  </div>
-</div>
+  </p>
+</details>
 
 <div id="loading" class="loading-state">
   <div class="spinner"></div><span>Loading online rankings…</span>
 </div>
 
-<div id="table-wrap" style="display:none;overflow-x:auto">
+<div id="table-wrap" class="data-sheet" tabindex="0" role="region" aria-label="online tournament rankings" style="display:none;overflow-x:auto">
   <table style="width:100%;border-collapse:collapse;font-size:0.85rem">
     <thead>
       <tr style="border-bottom:2px solid var(--border);color:var(--muted);

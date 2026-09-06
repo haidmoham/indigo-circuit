@@ -6,7 +6,6 @@
     max-width: 1100px; margin: 0 auto; padding: 2rem 1.25rem 4rem; overflow-x: hidden;
   }
   .ev-header { margin-bottom: 2rem; }
-  .ev-header h1 { font-size: 1.6rem; font-weight: 800; letter-spacing: .04em; color: var(--text); }
   .ev-header p  { font-size: .78rem; color: var(--muted); margin-top: .25rem; letter-spacing: .06em; text-transform: uppercase; }
 
   /* ── Input panel ─────────────────────────────────────────────────────────── */
@@ -44,7 +43,7 @@
     font-weight: inherit; letter-spacing: inherit; text-transform: inherit;
     transition: background .15s, color .15s;
   }
-  .source-toggle button.active { background: var(--violet); color: #fff; }
+  .source-toggle button.active { background: var(--violet); color: var(--bg); }
 
   .arch-box {
     background: rgba(255,255,255,.04); border: 1px solid rgba(255,255,255,.08);
@@ -99,7 +98,7 @@
 
   #run-btn {
     width: 100%; padding: .85rem; border-radius: 8px; border: none; cursor: pointer;
-    background: var(--violet); color: #fff; font-size: .88rem; font-weight: 700;
+    background: var(--violet); color: var(--bg); font-size: .88rem; font-weight: 700;
     letter-spacing: .06em; text-transform: uppercase;
     transition: opacity .15s, transform .1s;
   }
@@ -287,13 +286,16 @@
 </style>
 
 <div id="ev-root">
-  <div class="ev-header">
-    <h1>EV Lab</h1>
-    <p>Bayesian meta-weighted expected value · paste any decklist · see which techs move the needle</p>
+  <div class="page-intro">
+    <div>
+      <p class="page-eyebrow">a closer look at your sixty</p>
+      <h1 class="page-title">the EV lab.</h1>
+      <p class="page-description">Paste a decklist. Explore Bayesian meta-weighted expected value, one tech at a time.</p>
+    </div>
   </div>
 
   <div id="input-panel">
-    <textarea id="paste-area" placeholder="Paste PTCG Live export here...
+    <textarea id="paste-area" aria-label="PTCG Live decklist" placeholder="Paste PTCG Live export here...
 
 Pokémon: 14
 4 Dreepy TWM 158
@@ -318,7 +320,7 @@ Energy: 10
         <label>Detected Archetype</label>
         <div id="arch-detected" style="color:var(--muted);font-size:.8rem;">— paste a list to detect —</div>
         <div id="arch-picker">
-          <input id="arch-search" type="text" placeholder="Auto-detect" autocomplete="off" readonly>
+          <input id="arch-search" aria-label="choose archetype" type="text" placeholder="Auto-detect" autocomplete="off" readonly>
           <span id="arch-caret">▾</span>
           <div id="arch-dropdown">
             <input id="arch-filter" type="text" placeholder="Search archetypes…" autocomplete="off" spellcheck="false">

@@ -2,31 +2,27 @@
 {% block title %}Indigo Circuit — The League{% endblock %}
 
 {% block content %}
-<div style="display:flex;align-items:flex-start;justify-content:space-between;
-            gap:1rem;margin-bottom:1.75rem;flex-wrap:wrap">
+<div class="page-intro">
   <div>
-    <h1 style="font-size:1.6rem;font-weight:900;line-height:1.1">The League</h1>
-    <p style="color:var(--muted);font-size:0.8rem;font-weight:600;margin-top:0.25rem;
-              letter-spacing:0.04em;text-transform:uppercase">ATP rankings · Major tournaments · Rolling 52 weeks</p>
+    <p class="page-eyebrow">the competitive pokémon field guide</p>
+    <h1 class="page-title">the league.</h1>
+    <p class="page-description">The players shaping the season. Major tournaments, through a rolling 52-week lens.</p>
   </div>
-  <div style="display:flex;gap:0.75rem;flex-wrap:wrap">
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;
-                padding:0.65rem 1rem;font-size:0.72rem;color:var(--muted);font-weight:600;
-                max-width:340px;line-height:1.6">
-      <span style="color:var(--electric);font-weight:800">Champion &amp; Elite Four</span>
+</div>
+<details class="method-note">
+  <summary>how the league is ranked <span aria-hidden="true">↗</span></summary>
+  <div class="method-columns">
+    <p><strong>Champion &amp; Elite Four</strong>
       — ATP score: √(field ÷ placing) × tier weight, summed across all results in the last 52 weeks.
       Tier weights: Worlds ×10 · IC ×6 · Regional ×3 · SPE ×0.75.
       6-month half-life decay keeps rankings current. Min 2 events to appear.
-    </div>
-    <div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;
-                padding:0.65rem 1rem;font-size:0.72rem;color:var(--muted);font-weight:600;
-                max-width:300px;line-height:1.6">
-      <span style="color:var(--green);font-weight:800">Gym Leaders</span>
+    </p>
+    <p><strong>Gym Leaders</strong>
       — top specialist per archetype. Scored by season-weighted placement × log(event count).
       Min 3 events with that deck to qualify.
-    </div>
+    </p>
   </div>
-</div>
+</details>
 
 <div id="loading" class="loading-state">
   <div class="spinner"></div><span>Loading rankings…</span>
@@ -97,14 +93,7 @@ async function load() {
     const theme = getTheme(champ);
     const sprite = getSprite(champ.TOP_DECK_SPRITE, champ.TOP_DECK_NAME);
     document.getElementById('champion-section').innerHTML = `
-      <div class="champion-card" style="
-        --champ-glow: rgba(255,171,0,0.5);
-        --champ-glow-wide: rgba(255,171,0,0.22);
-        background: linear-gradient(135deg, #13103a 0%, #1a1010 100%);
-        border: 2px solid ${theme.c};
-        border-radius: 16px; padding: 2rem;
-        position: relative; overflow: hidden;
-      ">
+      <div class="champion-card" style="--type-color:${theme.c}">
         <div style="display:flex; align-items:center; gap:2rem; flex-wrap:wrap">
           <!-- Sprite -->
           ${sprite ? `<img src="${sprite}" alt="${champ.TOP_DECK_NAME || ''}"
@@ -165,14 +154,7 @@ async function load() {
     const sprite = getSprite(p.TOP_DECK_SPRITE, p.TOP_DECK_NAME);
     const rank = elite4.indexOf(p) + 2;
     return `
-    <div style="
-      background: var(--surface);
-      border: 1.5px solid ${theme.c}66;
-      border-left: 3px solid ${theme.c};
-      border-radius: 14px; padding: 1.25rem;
-      box-shadow: 0 0 30px ${theme.g}, 0 0 70px ${theme.c}28, 0 0 120px ${theme.c}14, inset 0 0 30px ${theme.c}10;
-      position: relative; overflow: hidden;
-    ">
+    <div class="contender-card" style="--type-color:${theme.c}">
       <!-- Rank watermark -->
       <div style="position:absolute;right:-0.1rem;top:-0.75rem;
                   font-size:5.5rem;font-weight:900;line-height:1;
@@ -230,11 +212,7 @@ async function load() {
     })();
     const sprite = getSprite(g.DECK_SPRITE, g.ARCHETYPE);
     return `
-    <div style="
-      background: var(--surface); border-radius: 12px; padding: 1rem;
-      border: 1px solid ${theme.c}44;
-      border-top: 2px solid ${theme.c};
-    ">
+    <div class="specialist-card" style="--type-color:${theme.c}">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:0.6rem">
         <span class="badge badge-gym">Gym Leader</span>
         <span style="color:var(--muted);font-size:0.7rem;font-weight:700">${g.TOURNAMENT_COUNT} majors</span>
