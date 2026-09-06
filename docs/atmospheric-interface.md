@@ -47,6 +47,20 @@ original meaning; they are not labeled as the world-final statistics or deck.
 Page templates retain their data requests and calculations. The ingest and
 production validation pipeline are unchanged.
 
+## Social preview
+
+The Open Graph image is a separate server-rendered PNG. Keep its moonlit palette,
+cream type, and gold champion emphasis consistent with the League page. Round
+numeric labels before drawing. Fit text to measured bounds so long player names
+and database float precision cannot overlap nearby content. Missing data must
+produce a readable brand card. A world badge requires a matching dated honor.
+
+Social metadata uses the public HTTPS image URL. Do not derive its scheme from
+the application request behind the deployment proxy. Change the image version
+when its visual grammar changes. External services can retain previews of links
+that were already shared; changing the origin cannot force those messages to
+refresh.
+
 ## Verification
 
 - Render all ten Jinja templates and check each resulting inline script with

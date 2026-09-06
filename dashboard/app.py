@@ -1017,106 +1017,14 @@ def gym_leaders_data():
 # ---------------------------------------------------------------------------
 # OG image  (/og-image.png)
 # ---------------------------------------------------------------------------
-import io
-from PIL import Image as PilImage, ImageDraw, ImageFont
+from .social_preview import render_social_preview
 
 _OG_CACHE: dict = {}          # { 'img': bytes, 'ts': float }
-_OG_TTL   = 300               # regenerate every 5 min
-
+_OG_TTL = 300                 # regenerate every 5 min
 _STATIC = os.path.join(os.path.dirname(__file__), "static")
-
-def _load_font(name: str, size: int):
-    path = os.path.join(_STATIC, name)
-    try:
-        return ImageFont.truetype(path, size)
-    except Exception:
-        return ImageFont.load_default()
-
-
-def _hex(h: str):
-    h = h.lstrip("#")
-    return tuple(int(h[i:i+2], 16) for i in (0, 2, 4))
 
 
 def _build_og_image() -> bytes:
-    W, H = 1200, 630
-    BG      = _hex("07051a")
-    SURFACE = _hex("0e0c26")
-    BORDER  = _hex("2b2760")
-    VIOLET  = _hex("a07cf8")
-    ELECTRIC= _hex("ffd600")
-    MUTED   = _hex("7b72b0")
-    GREEN   = _hex("57f287")
-    WHITE   = _hex("ede9ff")
-    GOLD    = _hex("ffab00")
-
-    img  = PilImage.new("RGBA", (W, H), BG + (255,))
-    draw = ImageDraw.Draw(img)
-
-    # Subtle dot grid
-    for gx in range(0, W, 28):
-        for gy in range(0, H, 28):
-            draw.ellipse([gx-1, gy-1, gx+1, gy+1],
-                         fill=VIOLET + (28,))
-
-    # Small quarter-circle glow, top-left corner only
-    for r in range(110, 0, -4):
-        alpha = max(0, int(12 * (1 - r / 110)))
-        draw.ellipse([-r, -r, r, r], fill=VIOLET + (alpha,))
-
-    f_word  = _load_font("nunito_900.ttf", 88)   # big two-line wordmark
-    f_large = _load_font("nunito_900.ttf", 48)
-    f_med   = _load_font("nunito_800.ttf", 32)
-    f_small = _load_font("nunito_800.ttf", 22)
-    f_tiny  = _load_font("nunito_800.ttf", 18)
-
-    # ── Left column: stacked two-line wordmark ────────────────────────────
-    PAD   = 60
-    # Card lives at CARD_X=730; left column center = (PAD + 730) / 2 ≈ 395
-    LC    = (PAD + 730) // 2   # horizontal centre of left column
-
-    # Measure so we can centre both lines
-    w_indigo  = draw.textlength("INDIGO",  font=f_word)
-    w_circuit = draw.textlength("CIRCUIT", font=f_word)
-
-    # Vertically centre the block (wordmark + tagline) in the canvas
-    block_h = 88 + 10 + 88 + 28 + 26   # line1 + gap + line2 + gap + tagline
-    y_start = (H - block_h) // 2
-
-    draw.text((LC - w_indigo  // 2, y_start),        "INDIGO",  font=f_word, fill=VIOLET   + (255,))
-    draw.text((LC - w_circuit // 2, y_start + 98),   "CIRCUIT", font=f_word, fill=ELECTRIC + (255,))
-
-    tagline = "welcome to the circuit"
-    tw = draw.textlength(tagline, font=f_small)
-    draw.text((LC - tw // 2, y_start + 98 + 96), tagline, font=f_small, fill=MUTED + (200,))
-
-    # ── Right column: Champion card ───────────────────────────────────────
-    CARD_X, CARD_Y = 730, 55
-    CARD_W, CARD_H = 445, 520
-    RADIUS = 18
-
-    # Card shadow
-    for i in range(10, 0, -1):
-        a = int(50 * (i / 10))
-        draw.rounded_rectangle(
-            [CARD_X + 6, CARD_Y + 6, CARD_X + CARD_W + 6, CARD_Y + CARD_H + 6],
-            radius=RADIUS, fill=(0, 0, 0, a)
-        )
-
-    # Card background
-    draw.rounded_rectangle(
-        [CARD_X, CARD_Y, CARD_X + CARD_W, CARD_Y + CARD_H],
-        radius=RADIUS, fill=SURFACE + (255,),
-        outline=GOLD + (120,), width=2
-    )
-
-    # Gold top accent bar
-    draw.rounded_rectangle(
-        [CARD_X, CARD_Y, CARD_X + CARD_W, CARD_Y + 5],
-        radius=RADIUS, fill=GOLD + (200,)
-    )
-
-    # Fetch champion data
     champ = None
     try:
         rows = query(
@@ -1133,87 +1041,13 @@ def _build_og_image() -> bytes:
     except Exception:
         pass
 
-    cx = CARD_X + CARD_W // 2
-    # Sprite sits right below the badge — tighter gap
-    sprite_y = CARD_Y + 62
-
-    # Deck sprite
-    if champ:
-        sprite_url = champ.get("TOP_DECK_SPRITE") or champ.get("top_deck_sprite")
-        if not sprite_url:
-            dn = (champ.get("TOP_DECK_NAME") or champ.get("top_deck_name") or "").lower()
-            dn = re.sub(r"\b\w+'\s*s\s+", "", dn)
-            dn = re.sub(r"\bmega\b|\bex\b|\bvstar\b|\bvmax\b|\bgx\b|\bv\b", "", dn)
-            dn = re.sub(r"[\s-]+", "-", dn.strip()).strip("-")
-            sprite_url = f"https://r2.limitlesstcg.net/pokemon/gen9/{dn.split('-')[0]}.png"
-        try:
-            resp = http.get(sprite_url, timeout=3)
-            if resp.status_code == 200:
-                spr = PilImage.open(io.BytesIO(resp.content)).convert("RGBA")
-                spr = spr.resize((110, 110), PilImage.LANCZOS)
-                img.paste(spr, (cx - 55, sprite_y), spr)
-        except Exception:
-            pass
-
-    name  = (champ.get("PLAYER_NAME") or champ.get("player_name") or "—") if champ else "—"
-    deck  = (champ.get("TOP_DECK_NAME") or champ.get("top_deck_name") or "") if champ else ""
-    atp   = champ.get("ATP_SCORE") or champ.get("atp_score") if champ else None
-    wr    = champ.get("WIN_RATE_PCT") or champ.get("win_rate_pct") if champ else None
-    t8s   = champ.get("TOP8S") or champ.get("top8s") if champ else None
-    majors= champ.get("MAJORS_COUNTED") or champ.get("majors_counted") if champ else None
-
-    name_y = sprite_y + 120
-    name_w = draw.textlength(name, font=f_large)
-    draw.text((cx - name_w // 2, name_y), name, font=f_large, fill=WHITE + (255,))
-
-    if deck:
-        deck_w = draw.textlength(deck, font=f_small)
-        draw.text((cx - deck_w // 2, name_y + 56), deck, font=f_small, fill=GOLD + (200,))
-
-    # Divider
-    div_y = name_y + 96
-    draw.line([(CARD_X + 22, div_y), (CARD_X + CARD_W - 22, div_y)],
-              fill=BORDER + (180,), width=1)
-
-    # Stats grid — 3 cols
-    stats = [
-        (f"{atp:.1f}" if atp is not None else "—",  "ATP Score",  GOLD),
-        (f"{wr}%"      if wr   is not None else "—", "Win Rate",   GREEN),
-        (str(t8s)      if t8s  is not None else "—", "Top 8s",     VIOLET),
-    ]
-    col_w = CARD_W // 3
-    for i, (val, label, color) in enumerate(stats):
-        sx = CARD_X + col_w * i + col_w // 2
-        sy = div_y + 22
-        val_w = draw.textlength(val, font=f_med)
-        draw.text((sx - val_w // 2, sy), val, font=f_med, fill=color + (255,))
-        lbl_w = draw.textlength(label, font=f_tiny)
-        draw.text((sx - lbl_w // 2, sy + 42), label, font=f_tiny, fill=MUTED + (200,))
-
-    if majors:
-        foot = f"{majors} major tournaments"
-        fw = draw.textlength(foot, font=f_tiny)
-        draw.text((cx - fw // 2, div_y + 110), foot, font=f_tiny, fill=MUTED + (160,))
-
-    # CHAMPION badge — large, centered, bottom of card
-    badge_h = 52
-    badge_w = 220
-    badge_y = CARD_Y + CARD_H - 26 - badge_h
-    badge_x = cx - badge_w // 2
-    draw.rounded_rectangle(
-        [badge_x, badge_y, badge_x + badge_w, badge_y + badge_h],
-        radius=10, fill=_hex("2a1a00") + (230,),
-        outline=GOLD + (180,), width=2
-    )
-    badge_label = "CHAMPION"
-    bl_w = draw.textlength(badge_label, font=f_med)
-    draw.text((cx - bl_w // 2, badge_y + (badge_h - 32) // 2), badge_label, font=f_med, fill=GOLD + (255,))
-
-    draw.text((PAD, H - 36), "indigocircuit.app", font=f_tiny, fill=MUTED + (90,))
-
-    out = io.BytesIO()
-    img.convert("RGB").save(out, format="PNG", optimize=True)
-    return out.getvalue()
+    world_champion = None
+    try:
+        with open(os.path.join(_STATIC, "championship-honors.json"), encoding="utf-8") as source:
+            world_champion = json.load(source).get("worldChampion")
+    except (OSError, ValueError, AttributeError):
+        pass
+    return render_social_preview(champ, _STATIC, world_champion)
 
 
 @app.get("/og-image.png")
