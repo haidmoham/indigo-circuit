@@ -39,7 +39,7 @@
       <span class="label">⚔ Elite Four</span>
       <div class="line"></div>
     </div>
-    <div id="elite4" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(270px, 1fr)); gap: 1rem"></div>
+    <div id="elite4" class="elite-four-grid"></div>
   </div>
 
   <!-- Gym Leaders -->
@@ -161,7 +161,7 @@ async function load() {
                   color:${theme.c};opacity:0.06;pointer-events:none;user-select:none">
         ${rank}
       </div>
-      <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.85rem">
+      <div class="elite-four-heading" style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.85rem">
         <div style="display:flex;gap:0.4rem;flex-wrap:wrap">
           <span class="badge badge-elite4">Elite Four</span>
           ${p.GYM_LEADER_OF ? `<span class="badge badge-gym" style="font-size:0.6rem">🏅 ${p.GYM_LEADER_OF}</span>` : ''}
@@ -169,7 +169,7 @@ async function load() {
         <span style="color:var(--muted);font-size:0.75rem;font-weight:700">${p.MAJORS_COUNTED} majors</span>
       </div>
 
-      <div style="display:flex;align-items:center;gap:0.85rem;margin-bottom:0.85rem">
+      <div class="elite-four-identity" style="display:flex;align-items:center;gap:0.85rem;margin-bottom:0.85rem">
         ${sprite ? `<img src="${sprite}" alt="${p.TOP_DECK_NAME || ''}"
           style="width:56px;height:56px;object-fit:contain;image-rendering:pixelated;flex-shrink:0;
                  filter:drop-shadow(0 0 6px ${theme.c}66);" onerror="this.style.display='none'">` : ''}

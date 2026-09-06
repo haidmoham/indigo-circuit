@@ -2,17 +2,24 @@
 
 The interface adapts the whole-page atmosphere of [in here](https://blog.shin86.dev/)
 and the [personal cluster](https://shin86.dev/). The reference is a stable reading
-surface surrounded by scenery. The new vector artwork is original to Indigo
-Circuit.
+surface surrounded by scenery. The visual identity belongs to Pokémon scouting.
+A two-tone Poké Ball replaces the reference star mark. The new vector habitat artwork is original to Indigo Circuit.
 
-Garden, night, and tide change the scenery. They do not change a data source,
+Tall grass, ghost woods, and surf change the scenery. Original vector illustrations
+of Pikachu, Gengar, and Lapras anchor each habitat. Tall grass, route markers, and
+coastal ripples replace the botanical flowers and celestial orbits. The saved scene
+IDs remain `garden`, `night`, and `tide` so existing preferences continue to work.
+The visible names describe habitats. They do not change a data source,
 format, ranking, or calculation. Their small swatches preview the scene. The
 selection persists between routes. Motion has a separate control. A reduced-motion
 preference starts the page still. Hidden documents pause the scenery.
 
 Heavy lowercase headings, small mono labels, muted type colors, and dark table
-surfaces connect the pages. Player names retain their source spelling. The league
-and ranking formulas remain available in native disclosure elements. Tables scroll
+surfaces connect the pages. Warm cream and muted Poké Ball red define navigation.
+Inset card borders and colored tier edges give player panels a trainer-card finish.
+The Elite Four use one row of four below the champion on desktop. The grid changes
+to two columns on tablets and one column on small screens. Player names retain
+their source spelling. The league and ranking formulas remain available in native disclosure elements. Tables scroll
 inside their containers on narrow screens. Charts use resolved CSS colors and
 resize with the viewport.
 

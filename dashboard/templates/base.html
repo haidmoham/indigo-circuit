@@ -18,7 +18,7 @@
   <meta name="twitter:description" content="{% block tw_description %}welcome to the circuit{% endblock %}">
   <meta name="twitter:image"       content="{{ request.host_url }}og-image.png">
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&family=DM+Mono:wght@400;500&family=Playfair+Display:ital,wght@0,500;1,500&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
   <link rel="stylesheet" href="{{ url_for('static', filename='atmosphere.css') }}">
   <script src="{{ url_for('static', filename='atmosphere.js') }}"></script>
@@ -347,54 +347,67 @@
 <body>
   <a class="skip-link" href="#main-content">skip to content</a>
   <div class="circuit-atmosphere" aria-hidden="true">
-    <!-- Original vector scenery. All three scenes share a stable reading surface. -->
+    <!-- Original Pokémon habitat illustrations. Decoration stays outside the data layer. -->
     <svg class="scene-art" viewBox="0 0 1440 1000" preserveAspectRatio="xMaxYMid slice" focusable="false">
       <defs>
         <radialGradient id="haze"><stop stop-color="var(--scene-haze)" stop-opacity=".42"/><stop offset="1" stop-color="var(--scene-haze)" stop-opacity="0"/></radialGradient>
-        <g id="circuit-leaf"><path d="M0 0C-32-17-42-53-24-79C2-59 12-24 0 0Z"/><path d="M0 0C9-25 38-45 62-37C55-9 22 8 0 0Z"/></g>
-        <g id="circuit-flower">
-          <g class="garden-petals"><ellipse cy="-22" rx="11" ry="24" transform="rotate(-8)"/><ellipse cy="-22" rx="11" ry="24" transform="rotate(64)"/><ellipse cy="-22" rx="11" ry="24" transform="rotate(136)"/><ellipse cy="-22" rx="11" ry="24" transform="rotate(208)"/><ellipse cy="-22" rx="11" ry="24" transform="rotate(280)"/></g>
-          <circle class="garden-heart" r="6"/>
-        </g>
+        <g id="route-grass"><path d="M0 100L-24 22L7 48L22 0L31 55L61 20L47 100Z"/></g>
+        <g id="route-ball"><circle r="29" fill="#e8debf"/><path d="M-29 0a29 29 0 0 1 58 0Z" fill="#d67366"/><circle r="29" fill="none" stroke="#283b39" stroke-width="4"/><path d="M-28 0H28" stroke="#283b39" stroke-width="5"/><circle r="10" fill="#e8debf" stroke="#283b39" stroke-width="5"/><circle r="4" fill="#a2b3a4"/></g>
       </defs>
       <ellipse cx="1080" cy="240" rx="640" ry="510" fill="url(#haze)"/>
-      <path class="scene-ridge" d="M0 810Q290 600 660 805T1440 710V1000H0Z"/>
-      <g class="scene-contour"><path d="M-70 800Q250 550 610 800T1510 730"/><path d="M-70 825Q250 585 610 825T1510 755"/><path d="M-70 850Q250 620 610 850T1510 780"/></g>
       <g class="scene-garden">
-        <g class="scene-sway scene-sway--slow">
-          <g class="garden-stems"><path d="M1410 1070Q1180 810 1250 320"/><path d="M1310 925Q1140 760 1050 690"/><path d="M1270 750Q1330 630 1400 510"/><path d="M1260 650Q1150 500 1110 440"/><path d="M1250 530Q1320 420 1345 290"/></g>
-          <g class="garden-leaves"><use href="#circuit-leaf" transform="translate(1260 645) rotate(-30) scale(1.3)"/><use href="#circuit-leaf" transform="translate(1255 790) rotate(45) scale(1.65)"/><use href="#circuit-leaf" transform="translate(1330 900) rotate(-25) scale(1.8)"/><use href="#circuit-leaf" transform="translate(1250 475) rotate(-10) scale(.85)"/><use href="#circuit-leaf" transform="translate(1165 545) rotate(-65) scale(.75)"/><use href="#circuit-leaf" transform="translate(1120 750) rotate(-35) scale(.9)"/></g>
-          <use href="#circuit-flower" transform="translate(1250 320) rotate(-20) scale(1.6)"/><use href="#circuit-flower" transform="translate(1110 440) rotate(12) scale(.8)"/><use href="#circuit-flower" transform="translate(1345 290) rotate(50) scale(.65)"/><use href="#circuit-flower" transform="translate(1400 510) rotate(25) scale(1.05)"/><use href="#circuit-flower" transform="translate(1050 690) rotate(-20) scale(.65)"/>
+        <path class="scene-ridge" d="M0 800Q290 620 660 800T1440 670V1000H0Z"/>
+        <path class="route-path" d="M1250 1000Q1130 820 1270 680T1300 470"/>
+        <!-- Pikachu watches the route from the tall grass. -->
+        <g class="habitat-pokemon pikachu" transform="translate(1260 455)">
+          <path d="M38 95L85 63L67 38L126-5L111 53L88 49L99 77L48 121Z" fill="#dfbc63"/>
+          <path d="M-46 30L-76-100Q-43-89-20-18L9-18Q43-83 68-99L41 31Q66 58 49 90Q65 130 42 151H-44Q-67 128-48 88Q-67 59-46 30Z" fill="#e8c56b"/>
+          <path d="M-76-100Q-60-95-48-75L-41-48L-62-47ZM68-99L54-48L32-43L39-68Z" fill="#344137"/>
+          <ellipse cx="-29" cy="52" rx="5" ry="7" fill="#344137"/><ellipse cx="26" cy="52" rx="5" ry="7" fill="#344137"/>
+          <circle cx="-44" cy="74" r="10" fill="#d47762"/><circle cx="42" cy="74" r="10" fill="#d47762"/>
+          <path d="M-4 68L3 68L0 72M-13 80Q-6 87 0 80Q6 87 13 80" fill="none" stroke="#344137" stroke-width="2.5" stroke-linecap="round"/>
         </g>
-        <g class="scene-sway" opacity=".65">
-          <g class="garden-stems"><path d="M-50 1030Q220 810 130 610"/><path d="M110 825Q290 700 280 570"/><path d="M60 910Q10 760 25 720"/></g>
-          <g class="garden-leaves"><use href="#circuit-leaf" transform="translate(135 790) rotate(-20) scale(1.4)"/><use href="#circuit-leaf" transform="translate(230 715) rotate(30) scale(1.1)"/><use href="#circuit-leaf" transform="translate(55 915) rotate(-55) scale(1.9)"/></g>
-          <use href="#circuit-flower" transform="translate(130 610) rotate(10) scale(1.1)"/><use href="#circuit-flower" transform="translate(280 570) rotate(-30) scale(.7)"/><use href="#circuit-flower" transform="translate(25 720) scale(.7)"/>
-        </g>
-        <g class="scene-drift garden-petals" opacity=".6"><path d="M1180 165Q1205 143 1210 172Q1195 188 1180 165"/><path d="M80 300Q96 280 106 307Q95 324 80 300"/><path d="M1355 730Q1372 710 1377 735Q1367 751 1355 730"/></g>
+        <g class="habitat-grass scene-sway"><use href="#route-grass" transform="translate(1140 565) scale(1.3)"/><use href="#route-grass" transform="translate(1210 575) scale(1.1)"/><use href="#route-grass" transform="translate(1290 555) scale(1.6)"/><use href="#route-grass" transform="translate(1390 610) scale(1.7)"/><use href="#route-grass" transform="translate(15 720) scale(1.6)"/><use href="#route-grass" transform="translate(80 770) scale(1.4)"/></g>
+        <g class="route-marker" transform="translate(1350 290)"><path d="M0 30V115" stroke="#a1b5a0" stroke-width="7"/><use href="#route-ball"/><text y="62" text-anchor="middle">01</text></g>
+        <g class="habitat-grass habitat-grass--near scene-sway scene-sway--slow"><use href="#route-grass" transform="translate(1180 820) scale(2.4)"/><use href="#route-grass" transform="translate(1320 800) scale(2.8)"/><use href="#route-grass" transform="translate(-20 830) scale(2.5)"/></g>
       </g>
       <g class="scene-night">
-        <circle class="scene-moon" cx="1190" cy="240" r="43"/>
-        <g class="scene-orbit scene-orbit-motion"><ellipse cx="1160" cy="310" rx="200" ry="100" transform="rotate(-35 1160 310)"/><ellipse cx="1160" cy="310" rx="300" ry="145" transform="rotate(-35 1160 310)"/><ellipse cx="1160" cy="310" rx="340" ry="265" transform="rotate(25 1160 310)"/><circle cx="1370" cy="194" r="8" fill="#d4bba7"/></g>
-        <g class="scene-stars scene-drift"><circle cx="90" cy="205" r="2"/><circle cx="230" cy="80" r="1.5"/><circle cx="1370" cy="500" r="2"/><circle cx="1180" cy="730" r="1.5"/><circle cx="145" cy="650" r="2"/><circle cx="850" cy="110" r="1.5"/><path d="M100 420h14m-7-7v14M1330 90h12m-6-6v12" fill="none" stroke="#ddd2b8"/></g>
-        <g class="scene-contour"><path d="M0 960Q350 570 620 810T1440 740"/><path d="M0 980Q350 600 620 840T1440 770"/><path d="M0 1000Q350 630 620 870T1440 800"/></g>
+        <circle class="scene-moon" cx="1250" cy="250" r="51"/>
+        <g class="habitat-trees"><path d="M1290 1000V510L1200 545L1273 485L1218 468L1285 405L1245 390L1305 292L1360 394L1329 410L1401 479L1335 482L1413 553L1330 519V1000Z"/><path d="M45 1000V568L-25 590L30 521L-10 525L50 423L110 530L76 524L132 587L68 567V1000Z"/></g>
+        <!-- Gengar's ears, grin, and red eyes emerge at the edge of the forest. -->
+        <g class="habitat-pokemon gengar scene-drift" transform="translate(1250 665)">
+          <path d="M-74 12L-96-81L-34-50L-18-73L0-56L25-82L40-48L96-81L77 17L105 50L84 64Q97 106 51 120L45 141L15 123H-29L-59 140L-61 114Q-98 95-86 61L-109 47Z" fill="#9a8cb3"/>
+          <path d="M-60 10L-13 29L-51 34ZM60 10L13 29L51 34Z" fill="#e9918d"/>
+          <path d="M-55 52Q0 78 57 49Q26 112-26 91Q-49 79-55 52Z" fill="#e8debf"/>
+          <path d="M-27 65L-22 91M0 69V96M26 65L22 91" stroke="#695b83" stroke-width="3"/>
+        </g>
+        <g class="habitat-grass scene-sway"><use href="#route-grass" transform="translate(1150 790) scale(1.8)"/><use href="#route-grass" transform="translate(1350 760) scale(2.4)"/></g>
+        <use class="route-marker" href="#route-ball" transform="translate(115 765) scale(.7)"/>
       </g>
       <g class="scene-tide">
-        <circle cx="1170" cy="245" r="62" fill="#e0ceaa" opacity=".32"/>
-        <g class="scene-wave scene-drift"><path d="M-100 380Q300 510 710 350T1540 390"/><path d="M-100 400Q300 530 710 370T1540 410"/><path d="M-100 426Q300 553 710 396T1540 436"/><path d="M-100 680Q300 480 710 730T1540 660"/><path d="M-100 702Q300 502 710 752T1540 682"/><path d="M-100 730Q300 530 710 780T1540 710"/><path d="M-100 910Q300 720 710 915T1540 830"/><path d="M-100 930Q300 744 710 938T1540 852"/></g>
-        <g class="scene-foam scene-sway"><ellipse cx="1310" cy="700" rx="60" ry="11" transform="rotate(-20 1310 700)"/><ellipse cx="130" cy="480" rx="37" ry="6" transform="rotate(10 130 480)"/><ellipse cx="1190" cy="870" rx="85" ry="12" transform="rotate(-17 1190 870)"/></g>
+        <circle cx="1280" cy="240" r="62" fill="#e0ceaa" opacity=".32"/>
+        <!-- Lapras rests above a set of coastal ripples. -->
+        <g class="habitat-pokemon lapras scene-drift" transform="translate(1265 575)">
+          <path d="M-62 81Q-111 62-127 90L-91 113Q-30 144 43 117L92 136Q103 116 77 94Q64 63 19 65L8 10Q37-3 20-35L4-48L3-69L-11-51Q-38-45-42-20Q-67-15-53 0L-30 5L-36 66Z" fill="#86bcca"/>
+          <path d="M-28 10Q-17 21-19 54L-6 93L16 94L0 8Z" fill="#dfd7b9"/>
+          <path d="M-79 94L-77 68L-60 73L-50 49L-33 69L-15 57L-7 80L14 81L19 104Q-34 122-79 94Z" fill="#a6acae"/>
+          <path d="M-48 84L-37 103M-16 85L-15 103" stroke="#718991" stroke-width="3" fill="none"/>
+          <circle cx="-25" cy="-26" r="4" fill="#28414a"/><path d="M9-30Q42-49 28-19L15-12" fill="#86bcca" stroke="#4a7b88" stroke-width="3"/>
+        </g>
+        <g class="scene-wave scene-drift"><path d="M-100 420Q300 550 710 390T1540 430"/><path d="M-100 445Q300 575 710 415T1540 455"/><ellipse cx="1240" cy="702" rx="165" ry="23"/><ellipse cx="1240" cy="706" rx="206" ry="37"/><path d="M-100 910Q300 720 710 915T1540 830"/><path d="M-100 940Q300 750 710 945T1540 860"/></g>
+        <use class="route-marker" href="#route-ball" transform="translate(115 670) rotate(-15) scale(.7)"/>
       </g>
     </svg>
   </div>
   <div id="global-loader"></div>
   <header class="site-header">
     <div class="header-top">
-      <div><a class="logo" href="/"><span class="logo-mark" aria-hidden="true">✳</span>indigo circuit</a><span class="identity-note">a field guide to competitive pokémon</span></div>
+      <div><a class="logo" href="/"><svg class="logo-mark" viewBox="0 0 40 40" aria-hidden="true" focusable="false"><circle cx="20" cy="20" r="17" fill="#f0e5c8"/><path d="M3 20a17 17 0 0 1 34 0Z" fill="#de796d"/><circle cx="20" cy="20" r="17" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 20H37" stroke="#26352f" stroke-width="4"/><circle cx="20" cy="20" r="6" fill="#f0e5c8" stroke="#26352f" stroke-width="3"/></svg>indigo circuit</a><span class="identity-note">your competitive pokémon field guide</span></div>
       <div class="atmosphere-controls" role="group" aria-label="page atmosphere">
-        <span class="atmosphere-label">a little atmosphere</span>
-        <button class="scene-button" data-scene-choice="garden" aria-pressed="true"><span class="scene-swatch scene-swatch--garden" aria-hidden="true"></span>garden</button>
-        <button class="scene-button" data-scene-choice="night" aria-pressed="false"><span class="scene-swatch scene-swatch--night" aria-hidden="true"></span>night</button>
-        <button class="scene-button" data-scene-choice="tide" aria-pressed="false"><span class="scene-swatch scene-swatch--tide" aria-hidden="true"></span>tide</button>
+        <span class="atmosphere-label">choose your habitat</span>
+        <button class="scene-button" data-scene-choice="garden" aria-pressed="true"><span class="scene-swatch scene-swatch--garden" aria-hidden="true"></span>tall grass</button>
+        <button class="scene-button" data-scene-choice="night" aria-pressed="false"><span class="scene-swatch scene-swatch--night" aria-hidden="true"></span>ghost woods</button>
+        <button class="scene-button" data-scene-choice="tide" aria-pressed="false"><span class="scene-swatch scene-swatch--tide" aria-hidden="true"></span>surf</button>
         <button class="motion-button" id="atmosphere-motion" aria-pressed="false" aria-label="play atmosphere motion"><span class="motion-icon" aria-hidden="true"></span><span id="atmosphere-motion-label">play motion</span></button>
       </div>
     </div>
