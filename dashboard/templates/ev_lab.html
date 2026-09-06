@@ -1,9 +1,10 @@
 {% extends "base.html" %}
+{% block title %}Indigo Circuit — Tech Lab{% endblock %}
 {% block content %}
 <style>
   /* ── Layout ─────────────────────────────────────────────────────────────── */
   #ev-root {
-    max-width: 1100px; margin: 0 auto; padding: 2rem 1.25rem 4rem; overflow-x: hidden;
+    max-width: 1100px; margin: 0 auto; padding: 0 0 2rem; min-width: 0;
   }
   .ev-header { margin-bottom: 2rem; }
   .ev-header p  { font-size: .78rem; color: var(--muted); margin-top: .25rem; letter-spacing: .06em; text-transform: uppercase; }
@@ -173,8 +174,8 @@
   .col-incl { text-align: right; font-size: .72rem; color: var(--muted); }
 
   @media (max-width: 600px) {
-    .card-row { grid-template-columns: 1fr 72px 18px; }
-    .col-bar, .col-std, .col-incl { display: none; }
+    .card-evidence-scroll { overflow-x: auto; }
+    .card-evidence-scroll > .card-row, .card-evidence-scroll > .matchup-panel { min-width: 690px; }
   }
 
   .tier-pill {
@@ -246,8 +247,8 @@
   .no-data { font-size: .72rem; color: var(--muted); opacity: .6; }
 
   @media (max-width: 600px) {
-    .mu-header, .mu-row { grid-template-columns: 1fr 52px 52px 52px; }
-    .mu-bar-wrap, .mu-n { display: none; }
+    .arch-table-wrap { overflow-x: auto; }
+    .arch-table { min-width: 650px; }
     .focus-dropdown { left: auto; right: 0; }
   }
 
@@ -288,13 +289,20 @@
 <div id="ev-root">
   <div class="page-intro">
     <div>
-      <p class="page-eyebrow">a closer look at your sixty</p>
-      <h1 class="page-title">the EV lab.</h1>
-      <p class="page-description">Paste a decklist. Explore Bayesian meta-weighted expected value, one tech at a time.</p>
+      <p class="page-eyebrow">the tech lab · list analysis</p>
+      <h1 class="page-title">test your sixty.</h1>
+      <p class="page-description">find the tech worth testing in your sixty. paste your list, check the evidence, then take a hypothesis to your next match.</p>
     </div>
   </div>
 
+  <nav class="lab-paths" aria-label="tech lab tools">
+    <a href="/ev-lab" aria-current="page"><span class="lab-path-number">01</span><strong>analyze your list</strong><span>estimate each tech slot against the field</span></a>
+    <a href="/tech"><span class="lab-path-number">02</span><strong>scout an archetype</strong><span>explore card choices before you build</span></a>
+  </nav>
+
   <div id="input-panel">
+    <div class="lab-input-card">
+    <label class="lab-step" for="paste-area">01 · paste your PTCG Live list</label>
     <textarea id="paste-area" aria-label="PTCG Live decklist" placeholder="Paste PTCG Live export here...
 
 Pokémon: 14
@@ -308,16 +316,20 @@ Trainer: 36
 
 Energy: 10
 ..."></textarea>
+    <p class="lab-input-note">open a result card to inspect match counts and copy choices.</p>
+    </div>
 
     <div class="side-panel">
+      <div class="lab-step">02 · choose your evidence</div>
       <div class="source-toggle" id="source-toggle">
         <button class="active" onclick="setSource('online')">Online</button>
         <button onclick="setSource('majors')">Majors</button>
         <button onclick="setSource('both')">Both</button>
       </div>
 
+      <p class="lab-input-note" id="source-context">online tournament lists and matches inform this estimate.</p>
       <div class="arch-box">
-        <label>Detected Archetype</label>
+        <label for="arch-search">confirm your archetype</label>
         <div id="arch-detected" style="color:var(--muted);font-size:.8rem;">— paste a list to detect —</div>
         <div id="arch-picker">
           <input id="arch-search" aria-label="choose archetype" type="text" placeholder="Auto-detect" autocomplete="off" readonly>
@@ -329,19 +341,27 @@ Energy: 10
         </div>
       </div>
 
-      <button id="run-btn" onclick="runEV()">Calculate EV</button>
+      <button id="run-btn" onclick="runEV()">analyze this list</button>
 
       <div class="hint-box">
-        <strong>How it works</strong><br>
-        Each card is split into matches where you ran it vs. didn't.
-        Win rates are estimated with a Beta prior (empirical Bayes), then
-        weighted by how often each opponent archetype appears in the meta.<br><br>
-        <strong>CORE</strong> cards (≥75% inclusion) contribute zero delta by definition.
-        <strong>TECH</strong> slots (&lt;40%) are where the signal lives.<br><br>
-        When enough data exists, EV is computed at your exact copy count vs. zero copies,
-        and the copy curve shows win rate at each count in the matchup panel.
-        The <em>×N avg</em> column shows the typical count players use when they include the card.
+        <strong>a starting point for testing</strong><br>
+        experimental: historical comparisons may include incomplete decklists and unresolved match results.
+        use these estimates to plan tests, not predict tournament performance. card choice, player skill,
+        and the rest of the list can all affect a result. a positive delta does
+        not prove that adding a card will improve your win rate.
       </div>
+      <details class="hint-box">
+        <summary>how the estimate works</summary>
+        <p>the model compares matches with and without a card. Bayesian smoothing
+        reduces the effect of small samples. opponent frequency sets the field weights.</p>
+        <p>core cards (≥75% inclusion) are excluded from the list adjustment.
+        their individual comparisons remain visible. tech cards
+        have &lt;40% inclusion. copy-specific estimates appear when enough data exists.</p>
+        <p>the approximate 90% model interval sums card variance. it excludes baseline
+        uncertainty and dependence between cards. inspect match counts before choosing a tech to test.</p>
+        <p>both pools match counts and averages source inclusion rates. online match history
+        can extend beyond the period used for current field weights.</p>
+      </details>
     </div>
   </div>
 
@@ -353,12 +373,18 @@ let _archetypes = [];
 let _currentResult = null;
 let _currentSource = 'online';
 let _focusedOpps = new Set();
+function sourceDescription(source) {
+  return source === 'majors' ? 'major tournament lists and matches inform this estimate.'
+    : source === 'both' ? 'online and major tournament evidence inform this estimate.'
+    : 'online tournament lists and matches inform this estimate.';
+}
 
 function setSource(src) {
   _currentSource = src;
   document.querySelectorAll('#source-toggle button').forEach(btn => {
     btn.classList.toggle('active', btn.textContent.toLowerCase() === src);
   });
+  document.getElementById('source-context').textContent = sourceDescription(src);
   loadArchetypes();
 }
 
@@ -471,6 +497,7 @@ async function detectArch() {
 async function runEV() {
   const raw  = document.getElementById('paste-area').value.trim();
   const arch = _selectedArchId || null;
+  const submittedSource = _currentSource;
   if (!raw) return;
 
   const btn = document.getElementById('run-btn');
@@ -485,67 +512,70 @@ async function runEV() {
     const r = await fetch('/api/ev/compute', {
       method: 'POST',
       headers: {'Content-Type':'application/json'},
-      body: JSON.stringify({decklist: raw, archetype_id: arch, source: _currentSource}),
+      body: JSON.stringify({decklist: raw, archetype_id: arch, source: submittedSource}),
     });
     const d = await r.json();
     if (d.error) {
       res.innerHTML = `<div class="ev-error">${d.error}</div>`;
     } else {
       _currentResult = d;
-      renderResults(d);
+      renderResults(d, {manualArchetype: !!arch, source: submittedSource});
     }
   } catch(e) {
     res.innerHTML = `<div class="ev-error">Request failed: ${e.message}</div>`;
   } finally {
     btn.disabled = false;
-    btn.textContent = 'Calculate EV';
+    btn.textContent = 'analyze this list';
   }
 }
 
 // ── Render results ────────────────────────────────────────────────────────────
-function renderResults(d) {
+function renderResults(d, context) {
   const res = document.getElementById('results');
   const evDelta = d.list_ev - d.baseline_wr;
   const evPct   = pct(d.list_ev);
   const basePct = pct(d.baseline_wr);
   const deltaPct= signPct(evDelta);
-  const ci      = pct(d.list_ev_std * 1.645);
+  const ci = d.list_ev_std > 0 && d.meta_coverage > 0
+    ? 'approx. 90% model interval ± ' + points(d.list_ev_std * 1.645)
+    : 'not enough card evidence for an interval';
 
   let html = `
   <div class="ev-summary">
     <div class="ev-stat">
-      <span class="label">Meta EV</span>
+      <span class="label">${d.list_ev < 0 || d.list_ev > 1 ? 'experimental model score · outside probability range' : 'experimental model estimate'}</span>
       <span class="value ${evDelta >= 0 ? 'green' : 'red'}">${evPct}</span>
-      <span class="ci">90% CI ± ${ci}</span>
+      <span class="ci">${ci}</span>
     </div>
     <div class="ev-stat">
-      <span class="label">Archetype Baseline</span>
+      <span class="label">archetype baseline</span>
       <span class="value">${basePct}</span>
-      <span class="ci">pre-tech win rate</span>
+      <span class="ci">field-weighted reference</span>
     </div>
     <div class="ev-stat">
-      <span class="label">Tech Delta</span>
+      <span class="label">list adjustment</span>
       <span class="value ${evDelta >= 0 ? 'green' : 'red'}">${deltaPct}</span>
-      <span class="ci">from tech slots</span>
+      <span class="ci">from non-core cards</span>
     </div>
     <div class="ev-stat">
-      <span class="label">Meta Coverage</span>
+      <span class="label">best-covered card</span>
       <span class="value">${Math.round(d.meta_coverage * 100)}%</span>
-      <span class="ci">of field scored</span>
+      <span class="ci">eligible field weight covered by one non-core card</span>
     </div>
     <div class="ev-stat" style="margin-left:auto">
       <span class="label">Archetype</span>
       <span class="value" style="font-size:1rem;margin-top:.2rem">${d.archetype_name || d.archetype_id}</span>
-      <span class="ci">${Math.round((d.confidence||1)*100)}% confidence</span>
+      <span class="ci">${context.manualArchetype ? 'selected manually' : Math.round((d.confidence ?? 0)*100) + '% archetype match'}</span>
     </div>
-  </div>`;
+  </div>
+  <p class="lab-result-note">${sourceDescription(context.source)} experimental historical estimate. the interval excludes baseline uncertainty and dependence between cards. use the deltas to plan tests, not predict tournament performance.</p>`;
 
   // Seed matchup focus: top 6 opponents by meta share
   const _oppIds = (d.opponent_archetypes || []).map(a => a.id);
   _focusedOpps = new Set(_oppIds.slice(0, 6));
 
   html += `<div class="focus-row" id="focus-row">
-    <span class="focus-label">Matchup Focus</span>
+    <span class="focus-label">show matchup details</span>
     <div id="focus-chips"></div>
     <div class="focus-add-wrap" id="focus-add-wrap">
       <button class="focus-add-btn" id="focus-add-btn">+ Add</button>
@@ -554,7 +584,7 @@ function renderResults(d) {
         <div class="focus-list" id="focus-list"></div>
       </div>
     </div>
-  </div>`;
+  </div><p class="lab-input-note">these controls show or hide matchup rows. they do not change the estimate or its field weights.</p>`;
 
   // Group cards
   const tech   = d.cards.filter(c => !c.is_core && c.inclusion_rate <  0.40 && c.scoreable);
@@ -564,12 +594,12 @@ function renderResults(d) {
 
   if (tech.length)   html += cardSection('Tech Slots  ·  inclusion < 40%',   tech,   'tech');
   if (common.length) html += cardSection('Common Slots  ·  inclusion 40–75%', common, 'common');
-  if (core.length)   html += cardSection('Core  ·  inclusion ≥ 75%  ·  zero delta by definition', core, 'core');
+  if (core.length)   html += cardSection('Core  ·  inclusion ≥ 75%  ·  excluded from list adjustment', core, 'core');
 
   if (unscoredCards.length || d.unscored_cards.length) {
     const all = [...new Set([...unscoredCards.map(c=>c.card_name), ...d.unscored_cards])];
     html += `<div class="card-section">
-      <div class="section-label">No Data  ·  insufficient match history</div>
+      <div class="section-label">limited or missing evidence · inspect coverage before testing</div>
       <div class="unscored-wrap">${all.map(n=>`<span class="unscored-pill">${esc(n)}</span>`).join('')}</div>
     </div>`;
   }
@@ -639,15 +669,16 @@ function renderResults(d) {
 function cardSection(label, cards, tier) {
   let html = `<div class="card-section">
     <div class="section-label">${label}</div>
+    <div class="card-evidence-scroll" tabindex="0" role="region" aria-label="card evidence and uncertainty">
     <div class="card-row" style="font-size:.65rem;color:var(--muted);letter-spacing:.07em;text-transform:uppercase;cursor:default;padding:.3rem .75rem">
-      <span>Card</span><span class="col-bar">Meta EV</span><span class="col-num">EV %</span><span class="col-std">± std</span><span class="col-incl">copies · inclusion</span><span></span>
+      <span>Card</span><span class="col-bar">field delta</span><span class="col-num">delta (pp)</span><span class="col-std">approx. 90% interval (pp)</span><span class="col-incl">copies · inclusion</span><span></span>
     </div>`;
   cards.forEach((c, i) => {
     const rowId = `${tier}-${i}`;
     html += cardRow(c, rowId, tier);
     html += matchupPanel(c, rowId);
   });
-  return html + '</div>';
+  return html + '</div></div>';
 }
 
 function cardRow(c, rowId, tier) {
@@ -667,7 +698,7 @@ function cardRow(c, rowId, tier) {
       <div class="fill" style="width:${absFill}%;background:${color}"></div>
     </div>
     <span class="col-num" style="color:${color}">${signPct(ev)}</span>
-    <span class="col-std">± ${pct(c.meta_ev_std * 1.645)}</span>
+    <span class="col-std">${c.meta_ev_std > 0 ? '± ' + points(c.meta_ev_std * 1.645) : 'unavailable'}</span>
     <span class="col-incl">${copiesLabel(c)}</span>
     <span class="col-caret">${hasMatchups ? '▾' : ''}</span>
   </div>`;
@@ -728,7 +759,7 @@ function matchupPanel(c, rowId) {
       <span>Opponent</span>
       <span style="text-align:right">W/O card</span>
       <span style="text-align:right">${withLabel}</span>
-      <span style="text-align:right">Δ EV</span>
+      <span style="text-align:right">delta (pp)</span>
       <span style="text-align:right">n w/wo</span>
       <span></span>
     </div>
@@ -797,7 +828,7 @@ function renderArchetypeBreakdown(d) {
             <th>Card</th>
             <th class="r">W/O</th>
             <th class="r" style="color:var(--electric)">With</th>
-            <th class="r">Δ EV</th>
+            <th class="r">delta (pp)</th>
             <th class="r">n w/wo</th>
             <th></th>
           </tr></thead>
@@ -820,7 +851,8 @@ function toggleArch(i) {
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 const pct     = v => (v * 100).toFixed(1) + '%';
-const signPct = v => (v >= 0 ? '+' : '') + (v * 100).toFixed(1) + '%';
+const points = v => (v * 100).toFixed(1) + ' pp';
+const signPct = v => (v >= 0 ? '+' : '') + points(v);
 const esc     = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
 
 function copiesLabel(c) {

@@ -1,15 +1,20 @@
 {% extends "base.html" %}
-{% block title %}Indigo Circuit — Tech Scouting{% endblock %}
+{% block title %}Indigo Circuit — Archetype Scouting{% endblock %}
 
 {% block content %}
 <div class="page-intro">
   <div>
-    <p class="page-eyebrow">the small choices that shape a deck</p>
-    <h1 class="page-title">tech scouting.</h1>
+    <p class="page-eyebrow">the tech lab · archetype scouting</p>
+    <h1 class="page-title">archetype scouting.</h1>
     <p class="page-description">
-      Explore card inclusion rates. Open a card to see its matchup EV.
+      see what players bring. explore common choices and unusual techs, then open a card to compare its observed matchup results.
     </p>
   </div>
+  <nav class="lab-paths" aria-label="tech lab tools">
+    <a href="/ev-lab"><span class="lab-path-number">01</span><strong>analyze your list</strong><span>return to the tech lab with your sixty</span></a>
+    <a href="/tech" aria-current="page"><span class="lab-path-number">02</span><strong>scout an archetype</strong><span>explore card choices before you build</span></a>
+  </nav>
+  <p class="lab-result-note">inclusion tells you how often a card appears. the matchup comparison is an observed win-rate difference, not a causal estimate. inspect both sample sizes before you test a change.</p>
   <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap">
     <!-- Source toggle -->
     <div id="source-toggle"
@@ -190,9 +195,10 @@ function toggleEV(rowId, cardName) {
   cardRow.dataset.open = '1';
   evRow.style.display  = '';
 
-  const cacheKey = currentDeckId + ':' + cardName + ':' + currentSource;
+  const evidenceSource = currentSource;
+  const cacheKey = currentDeckId + ':' + cardName + ':' + evidenceSource;
   if (_evCache[cacheKey]) {
-    renderEV(document.getElementById('ev-content-' + rowId), _evCache[cacheKey], cardName);
+    renderEV(document.getElementById('ev-content-' + rowId), _evCache[cacheKey], cardName, evidenceSource);
     return;
   }
 
@@ -205,34 +211,37 @@ function toggleEV(rowId, cardName) {
     .then(r => r.json())
     .then(data => {
       _evCache[cacheKey] = data;
-      renderEV(document.getElementById('ev-content-' + rowId), data, cardName);
+      renderEV(document.getElementById('ev-content-' + rowId), data, cardName, evidenceSource);
     })
     .catch(() => {
       document.getElementById('ev-content-' + rowId).innerHTML =
-        `<div style="padding:0.75rem 1rem;color:var(--red);font-size:0.78rem">Failed to load EV data.</div>`;
+        `<div style="padding:0.75rem 1rem;color:var(--red);font-size:0.78rem">failed to load matchup evidence.</div>`;
     });
 }
 
-function renderEV(el, rows, cardName) {
+function renderEV(el, rows, cardName, source) {
+  const evidenceLabel = source === 'majors' ? 'major events'
+    : source === 'both' ? 'online matchup evidence · card inclusion combines online + majors'
+    : 'online events';
   if (!rows || rows.error || !rows.length) {
     el.innerHTML = `<div style="padding:0.75rem 1rem;color:var(--muted);font-size:0.78rem;font-style:italic">
-      Not enough match data to compute EV for this card.</div>`;
+      not enough match data to compare this card.</div>`;
     return;
   }
 
   const tableRows = rows.map(r => {
     const oppName   = r.OPP_DECK_NAME  || r.opp_deck_name  || r.OPP_DECK  || r.opp_deck || '—';
-    const nWithout  = r.N_WITHOUT  || r.n_without  || null;
-    const nWith     = r.N_WITH     || r.n_with     || null;
-    const wrWithout = r.WR_WITHOUT || r.wr_without;
-    const wrWith    = r.WR_WITH    || r.wr_with;
-    const delta     = r.DELTA      || r.delta;
+    const nWithout  = r.N_WITHOUT  ?? r.n_without  ?? null;
+    const nWith     = r.N_WITH     ?? r.n_with     ?? null;
+    const wrWithout = r.WR_WITHOUT ?? r.wr_without;
+    const wrWith    = r.WR_WITH    ?? r.wr_with;
+    const delta     = r.DELTA      ?? r.delta;
 
     const deltaColor = delta != null
       ? (delta > 3 ? '#34d399' : delta < -3 ? '#fc8181' : 'var(--muted)')
       : 'var(--muted)';
     const deltaStr = delta != null
-      ? (delta > 0 ? '+' : '') + Number(delta).toFixed(1) + '%'
+      ? (delta > 0 ? '+' : '') + Number(delta).toFixed(1) + ' pp'
       : '—';
 
     const wrBar = (wr, n, color) => {
@@ -266,8 +275,8 @@ function renderEV(el, rows, cardName) {
     <div style="padding:0.5rem 0.75rem;display:flex;align-items:center;gap:0.75rem;
                 border-bottom:1px solid rgba(255,255,255,0.05);flex-wrap:wrap">
       <span style="font-size:0.65rem;font-weight:800;letter-spacing:0.09em;
-                   text-transform:uppercase;color:var(--electric)">⚡ Matchup EV — ${cardName}</span>
-      <span style="font-size:0.65rem;color:var(--muted)">online events · Δ = WR with card − WR without</span>
+                   text-transform:uppercase;color:var(--electric)">matchup evidence — ${cardName}</span>
+      <span style="font-size:0.65rem;color:var(--muted)">${evidenceLabel} · observed win-rate difference, in percentage points</span>
     </div>
     <div style="overflow-x:auto">
       <table style="width:100%;border-collapse:collapse;font-size:0.82rem">
@@ -277,7 +286,7 @@ function renderEV(el, rows, cardName) {
             <th style="padding:0.35rem 0.75rem;text-align:left;min-width:140px">Matchup</th>
             <th style="padding:0.35rem 0.75rem;text-align:right;min-width:120px">W/O card</th>
             <th style="padding:0.35rem 0.75rem;text-align:right;min-width:120px;color:var(--electric)">With card</th>
-            <th style="padding:0.35rem 0.75rem;text-align:right">Δ EV</th>
+            <th style="padding:0.35rem 0.75rem;text-align:right">WR difference</th>
           </tr>
         </thead>
         <tbody>${tableRows}</tbody>
