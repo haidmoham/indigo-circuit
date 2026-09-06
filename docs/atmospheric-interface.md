@@ -11,6 +11,8 @@ translation stays separate from SVG placement so motion preserves their position
 Tall grass, route markers, and
 coastal ripples replace the botanical flowers and celestial orbits. The saved scene
 IDs remain `garden`, `night`, and `tide` so existing preferences continue to work.
+Ghost woods is the default when no valid preference exists. An explicit saved
+choice still wins.
 The visible names describe habitats. They do not change a data source,
 format, ranking, or calculation. Their small swatches preview the scene. The
 selection persists between routes. Motion has a separate control. A reduced-motion
@@ -24,6 +26,20 @@ to two columns on tablets and one column on small screens. Player names retain
 their source spelling. The league and ranking formulas remain available in native disclosure elements. Tables scroll
 inside their containers on narrow screens. Charts use resolved CSS colors and
 resize with the viewport.
+
+## Champion honors
+
+The League champion is the first player in the live seasonal ranking. The world
+title is a separate, dated honor in `dashboard/static/championship-honors.json`.
+Its 2026 TCG Masters entry cites the official Pokémon event results. Update that
+record from an official result when a new championship is complete. Do not infer
+the world title from League rank, a Worlds top-eight count, or a best placing.
+
+When both honors belong to one person, the page combines them in one hero. When
+the holders differ, the page honors both people separately. The world-title year
+and source remain visible. A missing honors file must not prevent the live League
+ranking from rendering. Season statistics and the season archetype retain their
+original meaning; they are not labeled as the world-final statistics or deck.
 
 `dashboard/static/atmosphere.css` owns the shared visual rules.
 `dashboard/static/atmosphere.js` stores scene and motion preferences.

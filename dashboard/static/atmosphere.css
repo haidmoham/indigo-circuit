@@ -231,3 +231,51 @@ tbody tr:hover { background: #d5dfcc08; }
   #global-loader.loading { transform: scaleX(1); }
   *, *::before, *::after { scroll-behavior: auto !important; transition: none !important; }
 }
+
+/* Championship honors are independent of the rolling league ranking. */
+.league-intro { margin-bottom: 16px !important; padding-bottom: 16px; }
+.league-intro .page-title { font-size: clamp(2.1rem, 4vw, 3.4rem) !important; }
+.league-intro .page-eyebrow { margin-bottom: 10px; }
+.championship-hero { position: relative; display: grid; grid-template-columns: 140px minmax(0, 1fr) 150px; gap: 18px 30px; align-items: center; overflow: hidden; padding: clamp(24px, 4vw, 52px); margin-bottom: 24px; border: 1px solid #c8aa696b; border-radius: 18px; background: radial-gradient(ellipse at 8% 5%, #69608438, transparent 53%), linear-gradient(125deg, #23223b, #171e33 70%); box-shadow: inset 0 0 0 7px #d8bc7620, inset 0 0 0 8px #d8bc7626, 0 24px 70px #080c2538; }
+.championship-hero::before { content: ''; position: absolute; top: 15px; left: 28px; right: 28px; height: 1px; background: linear-gradient(90deg, transparent, #e9c875, transparent); pointer-events: none; }
+.championship-crest { width: 140px; max-width: 100%; color: #dabb77; filter: drop-shadow(0 0 22px #d7ad4a20); }
+.championship-identity { min-width: 0; }
+.championship-kicker { color: #bdb6c9; font: .65rem 'DM Mono', monospace; letter-spacing: .16em; margin-bottom: 18px; }
+.championship-honors { display: flex; gap: 8px 12px; flex-wrap: wrap; align-items: center; }
+.championship-title { display: inline-block; color: #e9c988; font: .71rem 'DM Mono', monospace; letter-spacing: .07em; }
+.world-title { background: #d9b76c; color: #24263a; border-radius: 3px; padding: 4px 9px; }
+.championship-name { color: #f5ecd4; font-size: clamp(2.8rem, 5.5vw, 5rem); font-weight: 900; line-height: 1.03; letter-spacing: -.055em; margin: 14px 0; overflow-wrap: anywhere; }
+.championship-name a { color: inherit; text-decoration: none; }
+.championship-name a:hover { color: #f5dca1; }
+.championship-context { color: #c2bdce; font-size: .78rem; line-height: 1.6; }
+.championship-source { display: inline-block; margin-top: 12px; color: #e5c890; font-size: .72rem; text-underline-offset: 4px; }
+.championship-deck { display: flex; flex-direction: column; align-items: center; text-align: center; min-width: 0; gap: 4px; }
+.championship-deck img { width: 112px; height: 112px; object-fit: contain; image-rendering: pixelated; filter: drop-shadow(0 8px 20px #b6a1e136); }
+.championship-deck span { color: #aaa7ba; font: .58rem 'DM Mono', monospace; }
+.championship-deck strong { color: #d5cbe2; font-size: .76rem; overflow-wrap: anywhere; }
+.championship-stats { grid-column: 1 / -1; display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 18px; padding: 25px 0 20px; margin-top: 10px; border-top: 1px solid #d9bd7933; }
+.championship-stats > div + div { border-left: 1px solid #d9bd7929; }
+.championship-stats > div > div:first-child { font-size: clamp(1.5rem, 3vw, 2.3rem) !important; }
+.championship-proof { grid-column: 1 / -1; display: flex; justify-content: space-between; flex-wrap: wrap; gap: 12px; color: #aaa8ba; font-size: .7rem; border-top: 1px solid #d9bd7920; padding-top: 15px; }
+.championship-proof a { color: #e5c890; text-underline-offset: 4px; }
+.world-honor { grid-template-columns: 140px minmax(0, 1fr); }
+.world-honor .championship-name { font-size: clamp(2.6rem, 5vw, 4.5rem); }
+.world-honor .championship-context { margin-top: 12px; }
+@media (max-width: 900px) {
+  .championship-hero { grid-template-columns: 94px minmax(0, 1fr); gap: 15px 20px; }
+  .championship-crest { width: 94px; }
+  .championship-deck { grid-column: 2; flex-direction: row; flex-wrap: wrap; justify-content: flex-start; text-align: left; gap: 5px 10px; }
+  .championship-deck img { width: 56px; height: 56px; }
+}
+@media (max-width: 520px) {
+  .championship-hero { grid-template-columns: minmax(0, 1fr); padding: 26px 23px; gap: 14px; }
+  .championship-crest { width: 88px; justify-self: center; }
+  .championship-identity { text-align: center; }
+  .championship-honors { justify-content: center; }
+  .championship-name { font-size: clamp(2.3rem, 10.8vw, 3.5rem); }
+  .championship-kicker { letter-spacing: .08em; margin-bottom: 14px; }
+  .championship-deck { grid-column: 1; justify-content: center; }
+  .championship-stats { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 24px 8px; padding-top: 22px; }
+  .championship-stats > div:nth-child(3) { border-left: none; }
+  .championship-proof { justify-content: center; text-align: center; }
+}

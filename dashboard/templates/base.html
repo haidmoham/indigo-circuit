@@ -1,5 +1,5 @@
 <!DOCTYPE html>
-<html lang="en" data-atmosphere="garden" data-motion="paused">
+<html lang="en" data-atmosphere="night" data-motion="paused">
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
@@ -20,8 +20,8 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&family=DM+Mono:wght@400;500&display=swap" rel="stylesheet">
   <script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
-  <link rel="stylesheet" href="{{ url_for('static', filename='atmosphere.css', v='tech-lab-1') }}">
-  <script src="{{ url_for('static', filename='atmosphere.js') }}"></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='atmosphere.css', v='champion-1') }}">
+  <script src="{{ url_for('static', filename='atmosphere.js', v='ghost-woods-1') }}"></script>
 
   <link rel="icon" type="image/png" href="/static/favicon.png">
 
@@ -405,8 +405,8 @@
       <div><a class="logo" href="/"><svg class="logo-mark" viewBox="0 0 40 40" aria-hidden="true" focusable="false"><circle cx="20" cy="20" r="17" fill="#f0e5c8"/><path d="M3 20a17 17 0 0 1 34 0Z" fill="#de796d"/><circle cx="20" cy="20" r="17" fill="none" stroke="currentColor" stroke-width="2"/><path d="M3 20H37" stroke="#26352f" stroke-width="4"/><circle cx="20" cy="20" r="6" fill="#f0e5c8" stroke="#26352f" stroke-width="3"/></svg>indigo circuit</a><span class="identity-note">your competitive pokémon field guide</span></div>
       <div class="atmosphere-controls" role="group" aria-label="page atmosphere">
         <span class="atmosphere-label">choose your habitat</span>
-        <button class="scene-button" data-scene-choice="garden" aria-pressed="true"><span class="scene-swatch scene-swatch--garden" aria-hidden="true"></span>tall grass</button>
-        <button class="scene-button" data-scene-choice="night" aria-pressed="false"><span class="scene-swatch scene-swatch--night" aria-hidden="true"></span>ghost woods</button>
+        <button class="scene-button" data-scene-choice="garden" aria-pressed="false"><span class="scene-swatch scene-swatch--garden" aria-hidden="true"></span>tall grass</button>
+        <button class="scene-button" data-scene-choice="night" aria-pressed="true"><span class="scene-swatch scene-swatch--night" aria-hidden="true"></span>ghost woods</button>
         <button class="scene-button" data-scene-choice="tide" aria-pressed="false"><span class="scene-swatch scene-swatch--tide" aria-hidden="true"></span>surf</button>
         <button class="motion-button" id="atmosphere-motion" aria-pressed="false" aria-label="play atmosphere motion"><span class="motion-icon" aria-hidden="true"></span><span id="atmosphere-motion-label">play motion</span></button>
       </div>

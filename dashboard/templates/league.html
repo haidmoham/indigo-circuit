@@ -2,35 +2,15 @@
 {% block title %}Indigo Circuit — The League{% endblock %}
 
 {% block content %}
-<div class="page-intro">
+<div class="page-intro league-intro">
   <div>
     <p class="page-eyebrow">the competitive pokémon field guide</p>
     <h1 class="page-title">the league.</h1>
     <p class="page-description">The players shaping the season. Major tournaments, through a rolling 52-week lens.</p>
   </div>
 </div>
-<aside class="lab-invitation" aria-label="tech lab">
-  <div>
-    <p class="lab-kicker">from the league to your list</p>
-    <h2>find the tech worth testing.</h2>
-    <p>Bring your sixty. Compare model estimates, matchup samples, and the choices behind your deck.</p>
-  </div>
-  <a class="lab-cta" href="/ev-lab">open tech lab <span aria-hidden="true">↗</span></a>
-</aside>
-<details class="method-note">
-  <summary>how the league is ranked <span aria-hidden="true">↗</span></summary>
-  <div class="method-columns">
-    <p><strong>Champion &amp; Elite Four</strong>
-      — ATP score: √(field ÷ placing) × tier weight, summed across all results in the last 52 weeks.
-      Tier weights: Worlds ×10 · IC ×6 · Regional ×3 · SPE ×0.75.
-      6-month half-life decay keeps rankings current. Min 2 events to appear.
-    </p>
-    <p><strong>Gym Leaders</strong>
-      — top specialist per archetype. Scored by season-weighted placement × log(event count).
-      Min 3 events with that deck to qualify.
-    </p>
-  </div>
-</details>
+
+
 
 <div id="loading" class="loading-state">
   <div class="spinner"></div><span>Loading rankings…</span>
@@ -49,6 +29,30 @@
     </div>
     <div id="elite4" class="elite-four-grid"></div>
   </div>
+
+<details class="method-note">
+  <summary>how the league is ranked <span aria-hidden="true">↗</span></summary>
+  <div class="method-columns">
+    <p><strong>Champion &amp; Elite Four</strong>
+      — ATP score: √(field ÷ placing) × tier weight, summed across all results in the last 52 weeks.
+      Tier weights: Worlds ×10 · IC ×6 · Regional ×3 · SPE ×0.75.
+      6-month half-life decay keeps rankings current. Min 2 events to appear.
+    </p>
+    <p><strong>Gym Leaders</strong>
+      — top specialist per archetype. Scored by season-weighted placement × log(event count).
+      Min 3 events with that deck to qualify.
+    </p>
+  </div>
+</details>
+
+<aside class="lab-invitation" aria-label="tech lab">
+  <div>
+    <p class="lab-kicker">from the league to your list</p>
+    <h2>find the tech worth testing.</h2>
+    <p>Bring your sixty. Compare model estimates, matchup samples, and the choices behind your deck.</p>
+  </div>
+  <a class="lab-cta" href="/ev-lab">open tech lab <span aria-hidden="true">↗</span></a>
+</aside>
 
   <!-- Gym Leaders -->
   <div>
@@ -86,72 +90,75 @@ function playerLink(name) {
                 style="margin-left:0.35rem;font-size:0.68rem">view</span>`;
 }
 
+function honorText(value) {
+  return String(value ?? '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+}
+
+function championshipCrest() {
+  return `<svg class="championship-crest" viewBox="0 0 180 180" aria-hidden="true" focusable="false">
+    <g fill="none" stroke="currentColor" stroke-width="2"><path d="M80 153Q23 128 30 58M100 153Q157 128 150 58"/><circle cx="90" cy="89" r="46" opacity=".35"/></g>
+    <g fill="currentColor"><path d="M34 104Q8 99 16 81Q35 86 34 104M41 126Q16 126 19 107Q39 108 41 126M57 143Q31 147 32 127Q51 124 57 143M30 80Q10 68 23 52Q39 65 30 80M35 58Q24 39 40 29Q50 46 35 58"/><path d="M146 104Q172 99 164 81Q145 86 146 104M139 126Q164 126 161 107Q141 108 139 126M123 143Q149 147 148 127Q129 124 123 143M150 80Q170 68 157 52Q141 65 150 80M145 58Q156 39 140 29Q130 46 145 58"/></g>
+    <path d="M63 58L57 33L77 42L90 24L103 42L123 33L117 58Z" fill="currentColor"/>
+    <circle cx="90" cy="94" r="29" fill="none" stroke="currentColor" stroke-width="3"/><path d="M61 94a29 29 0 0 1 58 0Z" fill="currentColor" opacity=".8"/><path d="M61 94H119" stroke="currentColor" stroke-width="3"/><circle cx="90" cy="94" r="9" fill="#20233e" stroke="currentColor" stroke-width="3"/>
+    <path d="M71 153H109" stroke="currentColor" stroke-width="2"/>
+  </svg>`;
+}
+
+function renderChampionships(champ, record) {
+  const world = record && typeof record.playerName === 'string' && record.playerName.trim()
+    && Number.isInteger(record.year) && typeof record.sourceUrl === 'string'
+    && /^https:\/\/(www\.)?pokemon\.com\//.test(record.sourceUrl) ? record : null;
+  const normalizeName = name => String(name || '').trim().replace(/\s+/g, ' ').toLowerCase();
+  const combined = !!(champ && world && normalizeName(champ.PLAYER_NAME) === normalizeName(world.playerName));
+  const worldCitation = world ? `<a class="championship-source" href="${honorText(world.sourceUrl)}" target="_blank" rel="noopener noreferrer">${world.year} ${honorText(world.division)} · official results <span aria-hidden="true">↗</span></a>` : '';
+  let html = '';
+  if (world && !combined) {
+    html += `<article class="championship-hero world-honor" aria-label="${world.year} world champion">
+      ${championshipCrest()}
+      <div class="championship-identity">
+        <p class="championship-kicker">the world title · ${world.year}</p>
+        <span class="championship-title">world champion</span>
+        <h2 class="championship-name">${honorText(world.playerName)}</h2>
+        ${worldCitation}
+        <p class="championship-context">an earned world title. a place in pokémon history.</p>
+      </div>
+    </article>`;
+  }
+  if (!champ) return html;
+  const sprite = getSprite(champ.TOP_DECK_SPRITE, champ.TOP_DECK_NAME);
+  html += `<article class="championship-hero league-champion${combined ? ' double-champion' : ''}" aria-label="league champion${combined ? ' and ' + world.year + ' world champion' : ''}">
+    ${championshipCrest()}
+    <div class="championship-identity">
+      <p class="championship-kicker">indigo circuit · the summit</p>
+      <div class="championship-honors"><span class="championship-title">league champion</span>${combined ? `<span class="championship-title world-title">${world.year} world champion</span>` : ''}</div>
+      <h2 class="championship-name"><a href="/player/${encodeURIComponent(champ.PLAYER_NAME)}">${honorText(champ.PLAYER_NAME)}</a></h2>
+      <p class="championship-context">${champ.COUNTRY ? countryDisplay(champ.COUNTRY) + ' · ' : ''}no. 1 across the rolling 52-week league</p>
+      ${combined ? worldCitation : ''}
+    </div>
+    ${sprite || champ.TOP_DECK_NAME ? `<div class="championship-deck">${sprite ? `<img src="${honorText(sprite)}" alt="" onerror="this.style.display='none'">` : ''}<span>season archetype</span><strong>${honorText(champ.TOP_DECK_NAME || '—')}</strong></div>` : ''}
+    <div class="championship-stats" aria-label="league season statistics">
+      ${statBox('league points', champ.ATP_SCORE != null ? Number(champ.ATP_SCORE).toFixed(1) : '—', 'var(--gold2)')}
+      ${statBox('win rate', champ.WIN_RATE_PCT != null ? Number(champ.WIN_RATE_PCT).toFixed(2) + '%' : '—', 'var(--text)')}
+      ${statBox('majors counted', champ.MAJORS_COUNTED ?? '—', 'var(--text)')}
+      ${statBox('worlds top 8', champ.WORLDS_TOP8S ?? 0, 'var(--gold2)')}
+    </div>
+    <div class="championship-proof"><span>season top cuts · ${champ.IC_TOP8S ?? 0} international · ${champ.REGIONAL_TOP8S ?? 0} regional</span><a href="/player/${encodeURIComponent(champ.PLAYER_NAME)}">explore the player record <span aria-hidden="true">↗</span></a></div>
+  </article>`;
+  return html;
+}
+
 async function load() {
-  const [lb, gyms] = await Promise.all([
+  const [lb, gyms, honors] = await Promise.all([
     fetch('/api/leaderboard').then(r => r.json()),
     fetch('/api/gym-leaders').then(r => r.json()),
+    fetch('/static/championship-honors.json').then(r => r.ok ? r.json() : null).catch(() => null),
   ]);
 
   document.getElementById('loading').style.display = 'none';
   document.getElementById('board').style.display = '';
 
-  // ── Champion ──────────────────────────────────────────────────────────
-  const champ = lb[0];
-  if (champ) {
-    const theme = getTheme(champ);
-    const sprite = getSprite(champ.TOP_DECK_SPRITE, champ.TOP_DECK_NAME);
-    document.getElementById('champion-section').innerHTML = `
-      <div class="champion-card" style="--type-color:${theme.c}">
-        <div style="display:flex; align-items:center; gap:2rem; flex-wrap:wrap">
-          <!-- Sprite -->
-          ${sprite ? `<img src="${sprite}" alt="${champ.TOP_DECK_NAME || ''}"
-            style="width:96px;height:96px;object-fit:contain;image-rendering:pixelated;
-                   filter:drop-shadow(0 0 12px ${theme.c}88);" onerror="this.style.display='none'">` : ''}
-
-          <!-- Name + meta -->
-          <div style="flex:1;min-width:200px">
-            <div style="margin-bottom:0.5rem;display:flex;align-items:center;gap:0.4rem;flex-wrap:wrap">
-              <span class="badge badge-champion">🏆 Champion</span>
-              ${champ.GYM_LEADER_OF ? `<span class="badge badge-gym">🏅 ${champ.GYM_LEADER_OF} Leader</span>` : ''}
-              ${champ.TOP_DECK_NAME ? `<span style="font-size:0.72rem;font-weight:700;
-                color:${theme.c};text-transform:uppercase;letter-spacing:0.08em">${champ.TOP_DECK_NAME}</span>` : ''}
-            </div>
-            <h2 style="font-size:2.2rem;font-weight:900;line-height:1.05;">
-              ${playerLink(champ.PLAYER_NAME)}
-            </h2>
-            <p style="color:var(--muted);margin-top:0.3rem;font-size:0.85rem;font-weight:600">
-              ${champ.COUNTRY ? countryDisplay(champ.COUNTRY) + ' · ' : ''}${champ.MAJORS_COUNTED} majors
-            </p>
-          </div>
-
-          <!-- Stats -->
-          <div style="display:flex;gap:2rem;flex-wrap:wrap;align-items:center">
-            ${statBox('ATP Score',   champ.ATP_SCORE != null ? champ.ATP_SCORE.toFixed(1) : '—', theme.c)}
-            ${statBox('Win Rate',    champ.WIN_RATE_PCT != null ? Number(champ.WIN_RATE_PCT).toFixed(2) + '%' : '—',    'var(--green)')}
-            ${statBox('Best Finish', '#' + champ.BEST_PLACING,    'var(--electric)')}
-          </div>
-        </div>
-
-        <!-- Tier split top cuts -->
-        <div style="position:relative;display:grid;grid-template-columns:1fr 1fr 1fr;
-                    gap:0.5rem;margin-top:1.5rem;padding-top:1rem;
-                    border-top:1px solid rgba(255,255,255,0.07);font-size:0.8rem">
-          <div style="text-align:center">
-            <div style="font-size:1.1rem;font-weight:900;color:var(--gold)">${champ.WORLDS_TOP8S || 0}</div>
-            <div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-top:0.15rem">Worlds Top 8</div>
-          </div>
-          <div style="text-align:center">
-            <div style="font-size:1.1rem;font-weight:900;color:var(--violet)">${champ.IC_TOP8S || 0}</div>
-            <div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-top:0.15rem">IC Top 8</div>
-          </div>
-          <div style="text-align:center">
-            <div style="font-size:1.1rem;font-weight:900;color:var(--green)">${champ.REGIONAL_TOP8S || 0}</div>
-            <div style="font-size:0.65rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.08em;margin-top:0.15rem">Regional Top 8</div>
-          </div>
-        </div>
-      </div>
-    `;
-  }
+  // The world title comes from an explicit event record, never the rolling ranking.
+  document.getElementById('champion-section').innerHTML = renderChampionships(lb[0], honors?.worldChampion);
 
   // ── Elite Four ────────────────────────────────────────────────────────
   const elite4 = lb.slice(1, 5);
