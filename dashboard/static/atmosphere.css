@@ -65,7 +65,7 @@ button:disabled { cursor: default; opacity: .6; }
 .scene-contour { fill: none; stroke: var(--scene-distant); stroke-width: 1; opacity: .34; }
 .scene-ridge { fill: var(--scene-distant); opacity: .13; }
 .route-path { fill: none; stroke: #cfbe9160; stroke-width: 72; }
-.habitat-pokemon { opacity: .55; }
+.habitat-pokemon { opacity: .24; }
 .habitat-grass { fill: #749b76; opacity: .65; }
 .habitat-grass--near { fill: #4e7d5f; opacity: .55; }
 .habitat-trees { fill: #6a668b; opacity: .25; }
@@ -81,7 +81,8 @@ html[data-atmosphere="night"] .scene-night, html[data-atmosphere="tide"] .scene-
 .scene-sway--slow { animation-duration: 27s; animation-delay: -8s; }
 .scene-drift { animation: scenery-drift 25s ease-in-out infinite alternate; }
 @keyframes garden-sway { from { transform: rotate(-1.5deg); } to { transform: rotate(2deg); } }
-@keyframes scenery-drift { from { transform: translate(-8px, 0); } to { transform: translate(12px, 9px); } }
+/* Animate translation separately so each SVG keeps its placement transform. */
+@keyframes scenery-drift { from { translate: -8px 0; } to { translate: 12px 9px; } }
 html[data-motion="paused"] .circuit-atmosphere *, html[data-document-hidden="true"] .circuit-atmosphere * { animation-play-state: paused !important; }
 
 .site-header { max-width: 1440px; margin: auto; padding: 24px 5% 0; }

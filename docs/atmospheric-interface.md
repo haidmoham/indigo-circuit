@@ -6,7 +6,9 @@ surface surrounded by scenery. The visual identity belongs to Pokémon scouting.
 A two-tone Poké Ball replaces the reference star mark. The new vector habitat artwork is original to Indigo Circuit.
 
 Tall grass, ghost woods, and surf change the scenery. Original vector illustrations
-of Pikachu, Gengar, and Lapras anchor each habitat. Tall grass, route markers, and
+of Pikachu, Gengar, and Lapras sit quietly behind the League cards. Animated
+translation stays separate from SVG placement so motion preserves their position.
+Tall grass, route markers, and
 coastal ripples replace the botanical flowers and celestial orbits. The saved scene
 IDs remain `garden`, `night`, and `tide` so existing preferences continue to work.
 The visible names describe habitats. They do not change a data source,
