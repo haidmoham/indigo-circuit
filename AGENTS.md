@@ -8,4 +8,4 @@
 - Keep direct evidence distinct from inference. Verify important data claims against DuckDB, dbt output, the pipeline gate, or the source API/site.
 - Preserve idempotent ingest behavior and last-known-good protection.
 - Keep credentials in environment configuration. Never copy secrets into repository docs, logs, or agent context.
-- Use agents for implementation friction and diagnosis support. Keep product judgment, statistical interpretation, and changes to trust boundaries with the human unless explicitly delegated.
+- Use agents to remove implementation friction and support diagnosis. Keep product judgment, statistical interpretation, and changes to trust boundaries with the human unless explicitly delegated.
