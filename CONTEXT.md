@@ -1,7 +1,7 @@
 # Indigo Circuit — Project Context
 
 **Live:** https://indigocircuit.app  
-**Repo:** github.com/haidmoham/ptcg-scouting  
+**Repo:** github.com/haidmoham/indigo-circuit
 **Deployed on:** Railway (service: `indigo-circuit`, volume: `indigo-circuit-volume` at `/data`)
 
 ---
@@ -149,6 +149,8 @@ Nightly pipeline runs at 06:00 UTC inside the gunicorn process (scheduler thread
 
 **Rotation:** `--current-rotation` and the `major_*` dbt marts both filter to `tournament_date >= _rotation_cutoff()` (most recent April 1). Each April this self-advances: rotated-out archetypes drop from the marts automatically, and the meta re-forms as new post-cutoff events are scraped. No code change needed at rotation.
 
+**Validation boundary.** The following gate applies to the shadow-copy path. First boot or a failed shadow copy uses direct live writes and does not provide the same last-known-good guarantee. The standalone `ingest/pipeline.sh` also writes directly.
+
 **Validation gate (maker/checker).** Between the dbt build and the atomic swap, `dashboard/pipeline_gate.py::validate_shadow()` opens the freshly-built shadow read-only and asserts invariants: marts schema present; online marts above absolute floors AND not regressed >50% vs live; majors marts not missing (catalog/build failure) and non-empty *unless* there are genuinely no current-rotation decklists yet (legit early-April state); and no rotated archetype leaked into `major_card_archetype_stats`. Any failure → shadow discarded, last-known-good live DB kept, decision written to `/data/last_gate.json` (see `GET /admin/pipeline-health`). Fail-closed: a gate error counts as rejection. Adversarially tested by `scripts/test_pipeline_gate.py` (good + 6 broken fixtures). This is what catches the failure modes that previously went live silently (empty marts from the dbt catalog bug, rotated archetypes, a scrape that returned nothing).
 
 DuckDB write lock management: signal file at `/data/pipeline_writing` blocks gunicorn reads during writes. Labs.py uses per-tournament connections so the lock is held only during brief write bursts (~seconds), not the full run duration.
@@ -167,7 +169,7 @@ Bayesian meta-weighted EV calculator for submitted decklists.
 - Prior: empirical Bayes, calibrated per archetype-matchup from aggregate historical WR. Falls back to `Beta(15, 15)` (30 phantom matches at 50%)
 - `card_ev_delta = E[WR|with_card] - E[WR|without_card]` — shrinks toward 0 with sparse data automatically
 - `list_ev = archetype_baseline_WR + Σ tech_card_deltas` (CORE cards contribute zero by definition)
-- Variance propagated end-to-end → 90% credible intervals displayed
+- Card-level variance is summed into approximate 90% model intervals; baseline uncertainty and dependence between cards are excluded. See the current Tech Lab disclosures.
 
 **Data source:** `dbt_dev_marts.card_match_splits` — built from `raw.matches` + `raw.standings` + `raw.decklists` (online data). Majors match data (`raw.major_matches`) not yet wired in — will deepen signal once full-field scrape completes.
 
@@ -178,7 +180,7 @@ Bayesian meta-weighted EV calculator for submitted decklists.
 ## Pending / known gaps
 
 - `raw.major_matches.opponent_deck_id` is resolved by joining opponent_name to major_standings — works well in practice but can miss in cases of duplicate names within a tournament
-- Majors full-field scrape still running on Railway (kicked off 2026-05-26) — `major_card_archetype_stats` and majors EV data will populate once complete
+- The full-field scrape was started on 2026-05-26. That historical note does not establish current job state; inspect operational logs and the database before assuming it is still running or complete.
 - `card_match_splits` uses online data only — add majors match data path once `raw.major_matches` is fully populated
 - EV Lab archetype detection confidence drops for rogue/hybrid lists — manual override dropdown available
 - `ingest/pipeline.sh --dbt-only` runs all dbt models; could be scoped to only changed models for speed

@@ -1,106 +1,85 @@
-# PTCG Scouting Report
+# Indigo Circuit
 
-Player performance analytics for competitive Pokémon TCG. Search any player to see their career stats, archetype history, consistency score, and head-to-head record.
+A competitive Pokémon TCG field guide: tournament results, player ratings, archetype history, and experimental deck estimates.
 
-**Live demo:** [railway URL — add after deploy]
+**[Open Indigo Circuit](https://indigocircuit.app)**
 
----
+## What runs
 
-## Architecture
+Python ingests online events from the Limitless API and major events from Limitless Labs into DuckDB. dbt builds staging views and analytics marts; Flask serves rankings, player records, and the Tech Lab. The interface is vanilla JavaScript and CSS.
 
-```
-Limitless TCG API (play.limitlesstcg.com/api)
-        ↓
-  ingest/load.py  (Python + snowflake-connector)
-        ↓
-  Snowflake: PTCG_SCOUTING.RAW.PTCG
-  ├── TOURNAMENTS
-  ├── STANDINGS
-  └── MATCHES
-        ↓
-  dbt (transform/)
-  ├── staging/  — clean + type-cast raw tables (materialized as views)
-  │   ├── stg_tournaments
-  │   ├── stg_standings
-  │   └── stg_matches
-  └── marts/    — player analytics (materialized as tables)
-      ├── player_tournament_history   ← foundation model
-      ├── players                     ← career stats + consistency score
-      ├── player_archetype_history    ← deck loyalty + win rate per archetype
-      └── player_vs_player            ← head-to-head records
-        ↓
-  Flask + Plotly.js dashboard (dashboard/)
-        ↓
-  Railway (deployed)
-```
+- [`ingest/load.py`](ingest/load.py): online standings, pairings, and decklists; incremental by tournament. The default scan is three pages, not the entire historical catalog.
+- [`ingest/labs.py`](ingest/labs.py): discovery and scraping for major events, including current-rotation decklists.
+- [`ingest/glicko.py`](ingest/glicko.py): Glicko-2 ratings.
+- [`transform/models/`](transform/models/): player, archetype, matchup, card, and seasonal marts.
+- [`dashboard/app.py`](dashboard/app.py): routes and the 06:00 UTC scheduler.
+- [`dashboard/pipeline_gate.py`](dashboard/pipeline_gate.py): validation before shadow-database promotion.
+- [`dashboard/ev.py`](dashboard/ev.py): empirical-Bayes shrinkage for experimental deck estimates.
 
----
+The scheduler normally rebuilds a shadow copy, validates its marts, then promotes it with `os.replace`. Rejected shadows preserve the live database. **First boot or a failed shadow copy falls back to direct writes to the live database; that path does not have the same validation and rollback guarantee.** The standalone pipeline script also writes to its configured database directly.
 
-## Setup
+Railway configuration is checked in as `railway*.toml`. A configured schedule is not evidence that every nightly run succeeded; operational gate decisions are recorded separately. `ptcg_scouting` remains the internal dbt project/profile name. Snowflake is no longer the storage backend.
 
-### 1. Snowflake trial account
-Sign up at snowflake.com — 30-day free trial, $400 credit. Note your **account identifier** (e.g. `abc12345.us-east-1`).
+## Local setup
 
-### 2. Environment
+Use Python in a virtual environment. From the repository root:
+
 ```bash
-cp .env.example .env
-# fill in SNOWFLAKE_ACCOUNT, SNOWFLAKE_USER, SNOWFLAKE_PASSWORD
-```
-
-### 3. dbt profile
-```bash
-cp transform/profiles.yml.example ~/.dbt/profiles.yml
-# values are read from .env automatically via env_var()
-```
-
-### 4. Install dependencies
-```bash
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
-cd transform && dbt deps   # installs dbt_utils
+cp .env.example .env
+mkdir -p data
+export DUCKDB_PATH="$PWD/data/ptcg.duckdb"
+export DBT_MARTS_SCHEMA=dbt_dev_marts
 ```
 
-### 5. Limitless API key (optional — needed for deck lists only)
-Request at https://play.limitlesstcg.com/account/settings/api.  
-Add to `.env` as `LIMITLESS_API_KEY`. Standings + pairings work without it.
+The exported absolute path makes the Python loaders and dbt use the same file even when their working directories differ. Add `LIMITLESS_API_KEY` to `.env` if you need protected decklist access. Public source availability and coverage can change.
 
-### 6. Ingest
+Inspect source access without database writes:
+
 ```bash
-python ingest/load.py --dry-run   # verify API connectivity
-python ingest/load.py             # load all PTCG tournaments into Snowflake
+python ingest/load.py --dry-run --pages 1
+python ingest/labs.py --help
 ```
 
-### 7. Transform
+To populate your **local** database and build the marts:
+
 ```bash
-cd transform
-dbt run
-dbt test
-dbt docs generate && dbt docs serve   # view lineage graph
+bash ingest/pipeline.sh
 ```
 
-### 8. Dashboard
+This can take substantial time and makes requests to the external data sources. To rebuild existing local data only, use `bash ingest/pipeline.sh --dbt-only`. The script creates a temporary dbt profile and runs `dbt deps` and `dbt run`; it does not run `dbt test` or the shadow-promotion gate.
+
+Run the dashboard:
+
 ```bash
-cd dashboard
-python app.py   # http://localhost:5001
+python dashboard/app.py
 ```
 
----
+Open `http://localhost:5001`. The dashboard needs populated marts for useful results; a fresh empty database is not a demo dataset. The application also starts its scheduler, so keep local configuration separate from production.
 
-## Key dbt concepts demonstrated
+## Checks
 
-| Concept | Where |
-|---|---|
-| Source definitions + freshness | `models/staging/_sources.yml` |
-| Staging / mart layer separation | `models/staging/` vs `models/marts/` |
-| Incremental-ready foundation model | `player_tournament_history.sql` |
-| Window functions (loyalty %) | `player_archetype_history.sql` |
-| Fan-out + aggregate pattern | `player_vs_player.sql` |
-| Schema tests (not_null, unique) | `_sources.yml`, `_stg_models.yml`, `_mart_models.yml` |
-| dbt docs lineage graph | `dbt docs generate` |
+These checks use fixtures or source files, without running production ingest:
 
----
+```bash
+python scripts/test_pipeline_gate.py
+node scripts/test_champion_presentation.mjs
+```
 
-## Data source
+The gate suite covers a healthy shadow, a legitimate empty-major-data state, and six rejected failure fixtures. To run dbt schema tests against a populated local database:
 
-Tournament data via the [Limitless TCG API](https://play.limitlesstcg.com/api) — standings and pairings available without auth. Covers online Limitless events and select in-person tournaments.
+```bash
+cp transform/profiles.yml.example transform/profiles.yml
+(cd transform && dbt deps --profiles-dir . && dbt test --profiles-dir .)
+rm transform/profiles.yml
+```
 
-**Planned:** Limitless Labs / RK9 integration for Regionals, Internationals, and Worlds data.
+## Interpretation and limits
+
+The Tech Lab estimates associations in observed match data, not the causal effect of adding a card. Sparse samples shrink toward matchup priors. The displayed 90% intervals are approximate model intervals: they exclude baseline uncertainty and dependence between cards. Archetype detection can be uncertain for hybrid lists; manual selection is available.
+
+Source coverage, name-based major-event joins, and current-rotation filters constrain the analysis. Read the implementation and visible source/sample disclosures before treating an estimate as a competitive edge.
+
+[Project context](CONTEXT.md) records operational details. [Portfolio](https://mhaider.dev) connects this project to the rest of the work.
