@@ -131,7 +131,7 @@ raw.major_decklists    — same shape as raw.decklists
 | `GET /api/ev/archetypes` | Available archetypes for manual override |
 | `POST /admin/run-pipeline` | Trigger nightly pipeline (X-Admin-Secret header) |
 | `POST /admin/run-majors-scrape` | Trigger full-field majors decklist scrape |
-| `GET /admin/pipeline-health?secret=` | Last validation-gate decision (pass/reject + why) |
+| `GET /admin/pipeline-health?secret=` | Last validation-gate decision plus run and publish freshness telemetry |
 | `GET /admin/db-holders` | Debug — show processes holding DuckDB fds |
 
 ---
@@ -154,6 +154,8 @@ Nightly pipeline runs at 06:00 UTC inside the gunicorn process (scheduler thread
 **Validation gate (maker/checker).** Between the dbt build and the atomic swap, `dashboard/pipeline_gate.py::validate_shadow()` opens the freshly-built shadow read-only and asserts invariants: marts schema present; online marts above absolute floors AND not regressed >50% vs live; majors marts not missing (catalog/build failure) and non-empty *unless* there are genuinely no current-rotation decklists yet (legit early-April state); and no rotated archetype leaked into `major_card_archetype_stats`. Any failure → shadow discarded, last-known-good live DB kept, decision written to `/data/last_gate.json` (see `GET /admin/pipeline-health`). Fail-closed: a gate error counts as rejection. Adversarially tested by `scripts/test_pipeline_gate.py` (good + 6 broken fixtures). This is what catches the failure modes that previously went live silently (empty marts from the dbt catalog bug, rotated archetypes, a scrape that returned nothing).
 
 DuckDB write lock management: signal file at `/data/pipeline_writing` blocks gunicorn reads during writes. Labs.py uses per-tournament connections so the lock is held only during brief write bursts (~seconds), not the full run duration.
+
+The health endpoint also reports pipeline run start/end, active, interrupted, or unknown state, the last validated publish timestamp and age, and whether a manual `/admin/run-pipeline` run started after that publish. It matches the current run's ID and owner PID against the shared lock owner; an unrecognized lock owner yields `unknown`. The default stale threshold is 48 hours (`PIPELINE_STALE_AFTER_HOURS` overrides it); this is an operational heuristic, not a measured user-impact threshold. Existing installs have no publish timestamp until the next validated promotion. Manual retries outside this dashboard are not observable, and a manual scrape is recorded as a distinct shared-lock owner rather than as a pipeline retry.
 
 **Majors full-field backfill** (separate, run manually or via admin endpoint):  
 `POST /admin/run-majors-scrape` — runs `labs.py --discover --with-decklists --all-players` (8h timeout) followed by dbt. Use to scrape the full field (not just top-64); incremental, so already-scraped players are skipped.

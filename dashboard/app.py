@@ -8,6 +8,7 @@ import re
 import shutil
 import threading
 import time
+import uuid
 from datetime import date
 from pathlib import Path
 from urllib.parse import quote as urlquote
@@ -1101,6 +1102,8 @@ _PIPELINE_LOCK = str(Path(DUCKDB_PATH).parent / "pipeline.lock")
 # Last validation-gate decision, written on every pipeline run (pass or reject)
 # and surfaced by GET /admin/pipeline-health.
 _GATE_RESULT_FILE = str(Path(DUCKDB_PATH).parent / "last_gate.json")
+_PIPELINE_STATUS_FILE = str(Path(DUCKDB_PATH).parent / "pipeline_status.json")
+_STALE_AFTER_HOURS = float(os.environ.get("PIPELINE_STALE_AFTER_HOURS", "48"))
 
 
 def _write_gate_result(record: dict) -> None:
@@ -1179,21 +1182,29 @@ def _kill_db_holders(logger) -> None:
         time.sleep(5)  # allow gunicorn to restart recycled worker and OS to release fds
 
 
-def _run_pipeline():
+def _run_pipeline(trigger: str = "scheduled"):
     global _pipeline_running
     log = app.logger
     from .pipeline_gate import validate_shadow, result_record
+    from .pipeline_status import start_run, finish_run, write_lock_owner
 
     # File-based mutex: only one gunicorn worker runs the pipeline at a time.
     # (Each worker spawns its own scheduler thread; without this they'd race.)
     try:
-        lf = open(_PIPELINE_LOCK, "w")
+        lf = open(_PIPELINE_LOCK, "a+")
         fcntl.flock(lf, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except (BlockingIOError, OSError):
         log.info("[pipeline] Another worker holds the lock — skipping this run")
         return
 
     log.info("[pipeline] Starting nightly run")
+    run_id = uuid.uuid4().hex
+    try:
+        owner_pid = os.getpid()
+        write_lock_owner(lf, "pipeline", owner_pid, run_id)
+        start_run(_PIPELINE_STATUS_FILE, run_id, trigger, owner_pid)
+    except Exception as e:
+        log.error(f"[pipeline] Could not record run start: {e}")
 
     # Shadow-copy the live DB so pipeline writes go to a separate file.
     # Readers keep hitting the live file uninterrupted; the signal file
@@ -1237,6 +1248,7 @@ def _run_pipeline():
     ]
 
     success = True
+    outcome = "failed"
     try:
         # Per-step timeouts: load.py can take 60+ min on first seed; labs.py now
         # scrapes current-rotation decklists so it gets a generous (incremental) window.
@@ -1295,9 +1307,12 @@ def _run_pipeline():
                     _write_gate_result(result_record(
                         published, [] if published else ["swap failed after gate pass"],
                         gate_metrics, "swapped" if published else "discarded"))
+                    if published:
+                        outcome = "promoted"
                 else:
                     log.error(f"[pipeline] GATE REJECTED swap — live DB kept. Failures: {gate_fail}")
                     _write_gate_result(result_record(False, gate_fail, gate_metrics, "discarded"))
+                    outcome = "rejected"
             elif not success:
                 log.info("[pipeline] Pipeline failed — shadow discarded, live DB untouched")
 
@@ -1310,6 +1325,13 @@ def _run_pipeline():
                     pass
         else:
             Path(_PIPELINE_SIGNAL).unlink(missing_ok=True)
+            if success:
+                outcome = "direct_write_unverified"
+
+        try:
+            finish_run(_PIPELINE_STATUS_FILE, run_id, outcome)
+        except Exception as e:
+            log.error(f"[pipeline] Could not record run outcome: {e}")
 
         try:
             fcntl.flock(lf, fcntl.LOCK_UN)
@@ -1343,7 +1365,7 @@ def _start_scheduler():
         # Bootstrap: run pipeline if DB is missing OR marts haven't been built yet
         if not _marts_ready():
             app.logger.info("[pipeline] Marts not ready — running initial seed now")
-            _run_pipeline()
+            _run_pipeline(trigger="bootstrap")
 
         while True:
             now = datetime.now(timezone.utc)
@@ -1375,11 +1397,21 @@ def admin_pipeline_health():
     secret = os.environ.get("ADMIN_SECRET", "")
     if not secret or request.args.get("secret") != secret:
         return jsonify({"error": "unauthorized"}), 403
+    from .pipeline_status import read_status
+    try:
+        pipeline_status = read_status(
+            _PIPELINE_STATUS_FILE, _PIPELINE_LOCK, _STALE_AFTER_HOURS)
+    except Exception:
+        # Keep the validation-gate endpoint available if telemetry storage is
+        # unreadable; freshness is unknown until its record can be read.
+        app.logger.exception("[pipeline] Could not read pipeline status")
+        pipeline_status = {"status": "unavailable", "stale": None}
     try:
         with open(_GATE_RESULT_FILE) as f:
-            return jsonify(json.load(f))
+            return jsonify({**json.load(f), "pipeline_status": pipeline_status})
     except FileNotFoundError:
-        return jsonify({"status": "no pipeline run recorded yet"}), 200
+        return jsonify({"status": "no pipeline run recorded yet",
+                        "pipeline_status": pipeline_status}), 200
     except Exception as e:
         return jsonify({"error": str(e)}), 500
 
@@ -1452,7 +1484,8 @@ def admin_run_pipeline():
     secret = os.environ.get("ADMIN_SECRET", "")
     if not secret or request.headers.get("X-Admin-Secret") != secret:
         return jsonify({"error": "unauthorized"}), 403
-    t = threading.Thread(target=_run_pipeline, daemon=True, name="pipeline-manual")
+    t = threading.Thread(target=_run_pipeline, kwargs={"trigger": "manual"},
+                         daemon=True, name="pipeline-manual")
     t.start()
     return jsonify({"status": "started"}), 202
 
@@ -1465,12 +1498,14 @@ def _run_majors_scrape():
     """
     log = app.logger
     try:
-        lf = open(_PIPELINE_LOCK, "w")
+        lf = open(_PIPELINE_LOCK, "a+")
         fcntl.flock(lf, fcntl.LOCK_EX | fcntl.LOCK_NB)
     except (BlockingIOError, OSError):
         log.info("[majors-scrape] Pipeline lock held — skipping")
         return
 
+    from .pipeline_status import write_lock_owner
+    write_lock_owner(lf, "majors-scrape", os.getpid())
     log.info("[majors-scrape] Starting full-field decklist scrape")
     # No signal file — labs.py now opens a fresh connection per tournament so
     # the DB is only locked during brief write bursts, not the full 8h run.
