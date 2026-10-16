@@ -1,0 +1,4 @@
+# Manual Limitless -> TCGplayer mappings, applied before automatic matching.
+# set_code,number = as Limitless prints them; tcgplayer_product_id blank = never price this printing.
+# Add a row when the nightly log reports an unmapped printing that really exists on TCGplayer.
+set_code,number,tcgplayer_product_id,note

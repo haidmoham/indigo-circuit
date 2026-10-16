@@ -32,6 +32,11 @@ from pathlib import Path
 
 import duckdb
 import requests
+
+try:
+    from ingest.http_polite import shared_session
+except ImportError:  # run as `python ingest/labs.py`
+    from http_polite import shared_session
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 
@@ -127,6 +132,27 @@ def _rotation_cutoff() -> str:
     return f"{year}-04-01"
 
 
+FINISHED_AFTER_DAYS = 3   # results are final this many days after the event's end date
+
+
+def is_finished(iso_date: str | None, today=None) -> bool:
+    """A tournament whose end date is >= FINISHED_AFTER_DAYS in the past is final:
+    its standings / player pages never change, so they are never re-fetched."""
+    from datetime import date, timedelta
+    if not iso_date:
+        return False
+    today = today or date.today()
+    try:
+        d = date.fromisoformat(str(iso_date)[:10])
+    except ValueError:
+        return False
+    return d <= today - timedelta(days=FINISHED_AFTER_DAYS)
+
+
+def _http():
+    return shared_session()
+
+
 def discover_tournaments() -> list[dict]:
     """Scrape the Labs index page for every listed tournament and parse its
     metadata. Returns curated-shaped dicts: {id, name, date, location, tier, season}.
@@ -134,17 +160,23 @@ def discover_tournaments() -> list[dict]:
     The index lists tournaments newest-first, so brand-new events appear here
     within hours of results posting — no manual JSON edit required.
     """
-    resp = requests.get(f"{LABS_BASE}/", timeout=30)
+    resp = _http().get(f"{LABS_BASE}/")   # index changes daily: always revalidate
     resp.raise_for_status()
     soup = BeautifulSoup(resp.content, "html.parser")
     out: list[dict] = []
-    for a in soup.find_all("a", href=re.compile(r"^/\d{4}")):
-        m = re.match(r"^/(\d{4})", a.get("href", ""))
+    for a in soup.find_all("a", href=re.compile(r"^(?:https://labs\.limitlesstcg\.com)?/\d{4}")):
+        m = re.search(r"/(\d{4})(?:/|$)", a.get("href", ""))
         if not m:
             continue
         tid = m.group(1)
         name_el = a.find("div", class_=re.compile(r"font-bold"))
         name = name_el.get_text(strip=True) if name_el else None
+        if not name:  # fallback: markup changed — first non-date text block in the card
+            for el in a.find_all(["div", "span", "h2", "h3"]):
+                t = el.get_text(" ", strip=True)
+                if t and not re.search(r"\d{4}", t) and len(t) > 4:
+                    name = t
+                    break
         if not name:
             continue
         logo = a.find("img", alt=re.compile("logo"))
@@ -167,16 +199,18 @@ def discover_tournaments() -> list[dict]:
 # Scraping — standings
 # ---------------------------------------------------------------------------
 
-def fetch_standings(tournament_id: str) -> list[dict]:
+def fetch_standings(tournament_id: str, finished: bool = False) -> list[dict]:
     url = f"{LABS_BASE}/{tournament_id}/standings"
-    resp = requests.get(url, timeout=30)
+    resp = _http().get(url, immutable=finished)
     resp.raise_for_status()
-    time.sleep(0.5)  # be polite
 
     soup = BeautifulSoup(resp.content, "html.parser")
     rows = []
 
-    for tr in soup.select("table tbody tr"):
+    trs = soup.select("table tbody tr")
+    if not trs:  # fallback parser: tables without <tbody>, header row skipped by cell count
+        trs = [tr for tr in soup.select("table tr") if tr.find_all("td")]
+    for tr in trs:
         cells = tr.find_all("td")
         if len(cells) < 4:
             continue
@@ -234,15 +268,14 @@ def fetch_standings(tournament_id: str) -> list[dict]:
 # Scraping — player matches + decklists
 # ---------------------------------------------------------------------------
 
-def fetch_player_matches(tournament_id: str, player_id: str) -> list[dict]:
+def fetch_player_matches(tournament_id: str, player_id: str, finished: bool = False) -> list[dict]:
     """Round-by-round results for a player. Returns [] on any failure."""
     url = f"{LABS_BASE}/{tournament_id}/player/{player_id}"
     try:
-        resp = requests.get(url, timeout=30)
+        resp = _http().get(url, immutable=finished)
         if resp.status_code == 404:
             return []
         resp.raise_for_status()
-        time.sleep(0.4)
     except requests.RequestException as e:
         log.warning(f"    match fetch failed {tournament_id}/{player_id}: {e}")
         return []
@@ -310,20 +343,41 @@ def fetch_player_matches(tournament_id: str, player_id: str) -> list[dict]:
     return rows
 
 
-def fetch_player_decklist(tournament_id: str, player_id: str) -> list[dict]:
+def fetch_player_decklist(tournament_id: str, player_id: str, finished: bool = False) -> list[dict]:
     """Full card list for a player. Returns [] if not available (404) or unparseable."""
     url = f"{LABS_BASE}/{tournament_id}/player/{player_id}/decklist"
     try:
-        resp = requests.get(url, timeout=30)
+        resp = _http().get(url, immutable=finished)
         if resp.status_code == 404:
             return []
         resp.raise_for_status()
-        time.sleep(0.4)
     except requests.RequestException as e:
         log.warning(f"    decklist fetch failed {tournament_id}/{player_id}: {e}")
         return []
+    return parse_decklist_html(resp.content)
 
-    soup = BeautifulSoup(resp.content, "html.parser")
+
+def _cards_from_message(message: dict) -> list[dict]:
+    cards = []
+    for category in ("pokemon", "trainer", "energy"):
+        for c in message.get(category, []) or []:
+            name = (c.get("name") or "").strip()
+            if name:
+                cards.append({
+                    "card_category": category,
+                    "card_name":     name,
+                    "card_set":      c.get("set"),
+                    "card_number":   str(c.get("number", "")) or None,
+                    "card_count":    int(c.get("count", 1)),
+                })
+    return cards
+
+
+def parse_decklist_html(content) -> list[dict]:
+    """Parse a Labs decklist page. Tries, in order: the embedded JSON payload,
+    any script containing a {"pokemon":[...]} object (fallback for payload
+    shape changes), then HTML table/list layouts."""
+    soup = BeautifulSoup(content, "html.parser")
 
     # Labs injects decklist as JSON inside a <script> tag.
     # Structure: {"status":200,...,"body":"<json-string>"}
@@ -357,7 +411,26 @@ def fetch_player_decklist(tournament_id: str, player_id: str) -> list[dict]:
         except Exception:
             pass
 
-    # Fallback: walk HTML elements for table/list-based layouts
+    # Fallback 1: any script that embeds a {"pokemon":[...],"trainer":[...]} object,
+    # whatever the wrapper looks like (escaped or not).
+    import json as _json2
+    for script in soup.find_all("script"):
+        txt = script.string or ""
+        if '"pokemon"' not in txt and '\\"pokemon\\"' not in txt:
+            continue
+        candidate = txt.replace('\\"', '"') if '\\"pokemon\\"' in txt else txt
+        idx = candidate.find('{"pokemon"')
+        if idx < 0:
+            continue
+        try:
+            obj, _ = _json2.JSONDecoder().raw_decode(candidate[idx:])
+            cards = _cards_from_message(obj)
+            if cards:
+                return cards
+        except Exception:
+            continue
+
+    # Fallback 2: walk HTML elements for table/list-based layouts
     cards = []
     current_category = None
     for el in soup.find_all(True):
@@ -558,6 +631,18 @@ def load_standings(conn, tournament_id: str, standings: list[dict]):
     ])
 
 
+def stored_standings(conn, tournament_id: str) -> list[dict]:
+    """Standings already in the DB, shaped like fetch_standings() output."""
+    try:
+        rows = conn.execute("""
+            SELECT player_id, player_name, "placing"
+            FROM raw.major_standings WHERE labs_tournament_id = ?
+        """, (tournament_id,)).fetchall()
+    except Exception:
+        return []
+    return [{"player_id": r[0], "player_name": r[1], "placing": r[2]} for r in rows]
+
+
 def already_scraped_players(conn, tournament_id: str) -> set[str]:
     """Return player_ids that already have match data for this tournament."""
     # A player is fully cached only if they have BOTH match data AND decklist data.
@@ -745,10 +830,20 @@ def main():
         try:
             upsert_tournament(conn, t)
             log.info(f"  {t['id']} {t['name']}")
-            standings = fetch_standings(t["id"])
-            load_standings(conn, t["id"], standings)
-            conn.commit()
-            log.info(f"    {len(standings)} standings loaded")
+            finished = is_finished(t.get("date"))
+            stored = stored_standings(conn, t["id"]) if (finished and not args.force) else []
+            if stored:
+                # Finished event already in the DB: results are final, never refetch.
+                standings = stored
+                log.info(f"    finished event — {len(standings)} standings from DB (no fetch)")
+            else:
+                standings = fetch_standings(t["id"], finished=finished and not args.force)
+                if not standings:
+                    log.warning(f"    0 standings parsed for {t['id']} — keeping existing rows")
+                else:
+                    load_standings(conn, t["id"], standings)
+                    conn.commit()
+                log.info(f"    {len(standings)} standings loaded")
 
             if not args.with_decklists:
                 continue
@@ -779,8 +874,8 @@ def main():
         scraped = []
         for p in to_scrape:
             pid  = p["player_id"]
-            matches  = fetch_player_matches(t["id"], pid)
-            decklist = fetch_player_decklist(t["id"], pid)
+            matches  = fetch_player_matches(t["id"], pid, finished=finished)
+            decklist = fetch_player_decklist(t["id"], pid, finished=finished)
             scraped.append((p, matches, decklist))
             log.debug(f"      #{p['placing']:3d} {p['player_name']}: {len(matches)} rounds, {len(decklist)} cards")
 
@@ -798,6 +893,8 @@ def main():
             conn.close()
 
         log.info(f"    {match_count}/{len(to_scrape)} match pages, {dl_count}/{len(to_scrape)} decklists")
+
+    log.info(f"HTTP: {_http().stats}")
 
 
 if __name__ == "__main__":

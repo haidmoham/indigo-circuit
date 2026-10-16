@@ -65,10 +65,12 @@ async function initFormatSelector() {
 
 async function load(sinceOverride) {
   const qs = sinceOverride ? `?since=${sinceOverride}` : '';
-  const [meta, finishes] = await Promise.all([
+  const [meta, finishes, prices] = await Promise.all([
     fetch(`/api/meta${qs}`).then(r => r.json()),
     fetch(`/api/meta/top-finishes${qs}`).then(r => r.json()),
+    fetch('/api/prices/archetypes').then(r => r.json()).catch(() => ({ archetypes: [], meta: {} })),
   ]);
+  const priceById = Object.fromEntries((prices.archetypes || []).map(a => [a.deck_id, a]));
 
   const fmt   = meta.format;
   const decks = meta.archetypes;
@@ -124,6 +126,12 @@ async function load(sinceOverride) {
     const day2Rate    = d.DAY2_RATE != null ? (d.DAY2_RATE * 100).toFixed(1) : null;
     const top8s       = d.TOP8S ?? 0;
     const best        = d.BEST_PLACING;
+    const price       = priceById[d.DECK_ID] || null;
+    const priceVal    = price && price.median_list_usd != null
+      ? '$' + Math.round(price.median_list_usd).toLocaleString('en-US') : '—';
+    const priceTitle  = price && price.median_list_usd != null
+      ? `median list $${price.median_list_usd} · IQR $${price.p25_list_usd}–$${price.p75_list_usd} · ${price.lists_priced} lists priced · prices as of ${price.prices_as_of}`
+      : 'no priced lists yet';
 
     const topF = (finishes[deckName] || []).slice(0, 8);
     const finisherHtml = topF.length
@@ -186,7 +194,7 @@ async function load(sinceOverride) {
       </div>
 
       <!-- Stats row -->
-      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:0.25rem;text-align:center">
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr 1fr;gap:0.25rem;text-align:center">
         <div>
           <div style="font-size:1.05rem;font-weight:900;color:var(--electric)">${appearances}</div>
           <div style="font-size:0.58rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em">Entries</div>
@@ -199,6 +207,11 @@ async function load(sinceOverride) {
           <div style="font-size:1.05rem;font-weight:900;color:${theme.c}">${top8s}</div>
           <div style="font-size:0.58rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em">Top 8s</div>
         </div>
+        <a href="${d.DECK_ID ? `/decks/${encodeURIComponent(d.DECK_ID)}/price` : '#'}" title="${priceTitle}"
+           style="text-decoration:none;color:inherit">
+          <div style="font-size:1.05rem;font-weight:900;color:var(--gold)">${priceVal}</div>
+          <div style="font-size:0.58rem;color:var(--muted);text-transform:uppercase;letter-spacing:0.06em">List Cost ↗</div>
+        </a>
       </div>
 
       <!-- Top finishers -->

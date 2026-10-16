@@ -211,3 +211,13 @@ cd transform && dbt run --select card_match_splits
 
 **DuckDB path:** `data/ptcg.duckdb` locally, `/data/ptcg.duckdb` on Railway (volume mount).  
 **Admin secret:** stored in Railway env vars. Locally: `export ADMIN_SECRET=$(railway variables --service indigo-circuit --json | python3 -c "import sys,json; print(json.load(sys.stdin)['ADMIN_SECRET'])")`
+
+---
+
+## Deck prices (branch `deck-prices`)
+
+- `ingest/prices.py` — pluggable `PriceProvider`; default `tcgcsv` (free daily mirror of TCGplayer catalog + market prices, https://tcgcsv.com, Pokémon category 3). Runs in the nightly job after glicko; syncs once per TCGCSV build (checks `last-updated.txt`), ~100 polite requests, never fails the pipeline.
+- `raw.card_prices` = daily price history (printing × variant × day). `raw.card_id_map` = Limitless set/number → TCGplayer productId + `func_key` (reprint equivalence). Manual fixes: `data/card_id_overrides.csv`.
+- dbt: `stg_card_prices`, `card_price_latest`, `deck_list_prices`, `archetype_card_prices`, `archetype_price_summary`.
+- UI: `/decks/<deck_id>/price`, price column on `/meta` and `/tech`, `/go/tcgplayer/<card>` (click log `affiliate_clicks.jsonl` next to the DB; affiliate wrap via `TCGPLAYER_AFFILIATE_URL`).
+- Labs scraper uses `ingest/http_polite.py` (UA, ~1 req/s, backoff, ETag disk cache, finished events never refetched). Gate also rejects sharp raw-table drops (<80% of live).

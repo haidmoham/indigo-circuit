@@ -97,7 +97,15 @@ def main():
         major_archetype_decks=(), major_match_rows=0,
         standings=(), post_cutoff_decklists=0))
 
+    results.append(run_case(
+        "raw decklists dipped slightly vs live (normal churn)", True,
+        post_cutoff_decklists=190, live={"post_cutoff_decklists": 200}))
+
     # --- Cases that MUST be rejected ---
+    results.append(run_case(
+        "raw decklists dropped sharply vs live (scrape wiped rows)", False,
+        post_cutoff_decklists=100, live={"post_cutoff_decklists": 200},
+        must_mention="major_decklists"))
     results.append(run_case(
         "marts schema missing (dbt didn't run)", False,
         marts_schema=False, must_mention="schema"))

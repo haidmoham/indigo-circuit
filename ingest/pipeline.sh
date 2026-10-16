@@ -28,6 +28,9 @@ if [[ $DBT_ONLY -eq 0 ]]; then
 
   log "--- Step 3/4: Glicko-2 ratings ---"
   python3 ingest/glicko.py
+
+  log "--- Step 3b: card prices (tcgcsv.com daily snapshot) ---"
+  python3 ingest/prices.py
 fi
 
 log "--- dbt run ---"
