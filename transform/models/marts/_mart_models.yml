@@ -128,3 +128,27 @@ models:
         tests: [not_null]
       - name: inclusion_rate
         description: Share of archetype lists containing this card (0.0–1.0).
+
+  - name: card_price_latest
+    description: Latest price snapshot per printing (cheapest variant), with equiv_key for reprint grouping.
+    columns:
+      - name: card_key
+        tests: [not_null, unique]
+
+  - name: deck_list_prices
+    description: Cost of each recent decklist (as listed, and with cheapest equivalent printings) plus unpriced-card count.
+    columns:
+      - name: deck_id
+        tests: [not_null]
+
+  - name: archetype_price_summary
+    description: Median / IQR list cost per archetype over lists >= 90% priced, joined to archetype marts.
+    columns:
+      - name: deck_id
+        tests: [not_null, unique]
+
+  - name: archetype_card_prices
+    description: Per archetype x card — inclusion, copies, median registered per-copy price, cheapest equivalent printing.
+    columns:
+      - name: deck_id
+        tests: [not_null]

@@ -1,0 +1,235 @@
+{% extends "base.html" %}
+{% block title %}Indigo Circuit — Deck Prices{% endblock %}
+
+{% block content %}
+<style>
+  .px-hero { display:flex; align-items:center; gap:1.25rem; flex-wrap:wrap; }
+  .px-hero img { width:84px; height:84px; object-fit:contain; image-rendering:pixelated; }
+  .px-fixture { margin:0 0 1.5rem; padding:.9rem 1.1rem; border:1px dashed var(--red); border-radius:8px;
+                background:#efa69d14; color:var(--red); font:.78rem 'DM Mono',monospace; letter-spacing:.03em; }
+  .px-stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:.75rem; margin-bottom:1.5rem; }
+  .px-stat { background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:1rem 1.1rem;
+             box-shadow: inset 0 0 0 4px #ead9ad0a, 0 7px 0 #071e2229; }
+  .px-stat b { display:block; font-size:1.55rem; font-weight:900; letter-spacing:-.03em; line-height:1.1; }
+  .px-stat span { display:block; margin-top:.35rem; font:.62rem 'DM Mono',monospace; letter-spacing:.08em; color:var(--muted); }
+  .px-stat small { display:block; margin-top:.2rem; color:var(--muted); font-size:.72rem; }
+  .px-grid { display:grid; grid-template-columns:minmax(0,1.15fr) minmax(0,1fr); gap:1rem; margin-bottom:1.5rem; }
+  @media (max-width: 900px) { .px-grid { grid-template-columns:1fr; } }
+  .px-swap { border-top:1px solid var(--border); padding:.85rem 0; }
+  .px-swap:first-of-type { border-top:none; padding-top:0; }
+  .px-swap-head { display:flex; justify-content:space-between; gap:.75rem; align-items:baseline; }
+  .px-swap-name { font-weight:800; }
+  .px-price { font-weight:900; color:var(--gold); white-space:nowrap; font-variant-numeric:tabular-nums; }
+  .px-chip { display:inline-flex; align-items:center; gap:.35rem; margin:.45rem .4rem 0 0; padding:.28rem .6rem;
+             border-radius:999px; font-size:.72rem; font-weight:700; border:1px solid var(--border); background:#ffffff08; }
+  .px-chip--reprint { color:var(--green); border-color:#acd3b155; background:#acd3b112; }
+  .px-chip--sub { color:var(--cyan); border-color:#9acbd055; background:#9acbd010; }
+  .px-note { color:var(--muted); font-size:.74rem; margin-top:.35rem; }
+  .px-ci { position:relative; height:16px; margin:.35rem 0 .1rem; }
+  .px-ci-axis { position:absolute; left:0; right:0; top:7px; height:2px; background:#ffffff12; border-radius:2px; }
+  .px-ci-zero { position:absolute; top:1px; width:1px; height:14px; background:#ffffff40; }
+  .px-ci-bar { position:absolute; top:4px; height:8px; border-radius:4px; opacity:.85; }
+  .px-ci-dot { position:absolute; top:3px; width:10px; height:10px; margin-left:-5px; border-radius:50%; border:2px solid var(--bg); }
+  .px-ci-legend { display:flex; justify-content:space-between; font:.6rem 'DM Mono',monospace; color:var(--muted); }
+  .px-table td, .px-table th { padding:.5rem .75rem; border-bottom:1px solid #ffffff0a; text-align:left; }
+  .px-table th { color:var(--muted); font-size:.62rem; text-transform:uppercase; letter-spacing:.1em; }
+  .px-table td.num, .px-table th.num { text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .px-buy { display:inline-block; padding:.22rem .55rem; border-radius:5px; border:1px solid var(--accent); color:var(--accent2);
+            text-decoration:none; font-size:.7rem; font-weight:800; white-space:nowrap; }
+  .px-buy:hover { background:var(--accent2); color:#17232d; }
+  .px-empty { text-align:center; padding:2.5rem 1rem; color:var(--muted); }
+  .px-empty .px-ball { font-size:2.2rem; display:block; margin-bottom:.5rem; animation: px-wobble 2.4s ease-in-out infinite; }
+  @keyframes px-wobble { 0%,100%{transform:rotate(0)} 20%{transform:rotate(-14deg)} 40%{transform:rotate(10deg)} 60%{transform:rotate(-6deg)} }
+  @media (prefers-reduced-motion: reduce) { .px-empty .px-ball { animation:none; } }
+  .px-select { background:var(--surface); color:var(--text); border:1px solid var(--border); border-radius:8px;
+               padding:.4rem .75rem; font:700 .8rem inherit; font-family:inherit; }
+</style>
+
+<div class="page-intro">
+  <div>
+    <p class="page-eyebrow">the tech lab · deck prices</p>
+    <div class="px-hero">
+      <img id="px-sprite" alt="" style="display:none" onerror="this.style.display='none'">
+      <h1 class="page-title" id="px-title">what it costs.</h1>
+    </div>
+    <p class="page-description" id="px-sub">what recent lists of this archetype cost to build, where the money goes, and which swaps the data can't tell apart.</p>
+  </div>
+  <nav class="lab-paths" aria-label="tech lab tools">
+    <a href="/tech"><span class="lab-path-number">02</span><strong>scout an archetype</strong><span>card choices, inclusion and matchups</span></a>
+    <a href="#" aria-current="page"><span class="lab-path-number">03</span><strong>price a deck</strong><span>
+      <select id="px-picker" class="px-select" aria-label="choose an archetype"><option>loading…</option></select></span></a>
+  </nav>
+</div>
+
+<div id="px-loading" class="loading-state"><div class="spinner"></div><span>counting coins…</span></div>
+<div id="px-wrap" style="display:none">
+  <div id="px-fixture" class="px-fixture" style="display:none"></div>
+  <div id="px-stats" class="px-stats"></div>
+  <div class="px-grid">
+    <div class="card">
+      <div class="card-title">budget swaps · most expensive cards first</div>
+      <div id="px-swaps"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">what recent lists cost</div>
+      <div id="px-hist"></div>
+      <p class="px-note" id="px-hist-note"></p>
+    </div>
+  </div>
+  <div class="card" style="padding:0">
+    <div class="card-title" style="padding:1rem 1rem 0">where the money goes</div>
+    <div class="data-sheet" style="border:none">
+      <table class="px-table" style="width:100%">
+        <thead><tr>
+          <th>card</th><th class="num">in lists</th><th class="num">copies</th>
+          <th class="num">per copy</th><th class="num">cheapest printing</th><th class="num">avg $ / list</th><th></th>
+        </tr></thead>
+        <tbody id="px-rows"></tbody>
+      </table>
+    </div>
+  </div>
+  <details class="method-note" open>
+    <summary>how to read these prices</summary>
+    <p id="px-asof"></p>
+    <p id="px-coverage"></p>
+    <p>list cost = Σ copies × the TCGplayer market price of each registered printing (cheapest of its normal / holo / reverse-holo variants). "cheapest printing" swaps a card for an identical reprint: trainers and energy match by name, pokémon only when attacks, abilities and HP match exactly. lists with under 90% of cards priced are left out of the medians so missing prices can't make a deck look cheap.</p>
+    <p>swap suggestions compare each card's <em>shrunk</em> win-rate effect in this archetype (empirical-Bayes, same model as the tech lab), shown as 80% credible intervals. overlapping intervals mean the data can't tell the two cards apart — not that they play the same. test before you trust.</p>
+    <p id="px-disclosure"></p>
+  </details>
+</div>
+{% endblock %}
+
+{% block scripts %}
+const DECK_ID = {{ deck_id|tojson }};
+const usd = v => v == null ? '—' : '$' + Number(v).toLocaleString('en-US', {minimumFractionDigits: 2, maximumFractionDigits: 2});
+const pct = v => v == null ? '—' : (v * 100).toFixed(0) + '%';
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+let PIDS = {};
+function buyLink(name, key) {
+  const [set, n] = (key || '').split('-');
+  const qs = new URLSearchParams({deck: DECK_ID});
+  if (set) qs.set('set', set); if (n) qs.set('n', n);
+  if (PIDS[key]) qs.set('pid', PIDS[key]);
+  return `/go/tcgplayer/${encodeURIComponent(name)}?${qs}`;
+}
+
+function ciBar(eff, color, range) {
+  if (!eff) return '';
+  const x = v => ((v + range) / (2 * range) * 100).toFixed(1);
+  const lo = Math.max(-range, eff.lo), hi = Math.min(range, eff.hi);
+  return `<div class="px-ci" title="effect ${(eff.delta*100).toFixed(1)} pts (80% CI ${(eff.lo*100).toFixed(1)} to ${(eff.hi*100).toFixed(1)}) · ${eff.n_with} with / ${eff.n_without} without">
+    <div class="px-ci-axis"></div><div class="px-ci-zero" style="left:50%"></div>
+    <div class="px-ci-bar" style="left:${x(lo)}%;width:${(x(hi)-x(lo))}%;background:${color}55;border:1px solid ${color}"></div>
+    <div class="px-ci-dot" style="left:${x(Math.max(-range, Math.min(range, eff.delta)))}%;background:${color}"></div>
+  </div>`;
+}
+
+function renderSwaps(swaps) {
+  if (!swaps.length) return `<div class="px-empty"><span class="px-ball">◓</span>no priced cards yet, so no swaps to suggest.</div>`;
+  const effs = swaps.flatMap(s => [s.effect, ...s.substitutes.map(x => x.effect)]).filter(Boolean);
+  const range = Math.max(0.05, ...effs.map(e => Math.max(Math.abs(e.lo), Math.abs(e.hi)))) ;
+  return swaps.map(s => {
+    const chips = [];
+    if (s.reprint) chips.push(`<a class="px-chip px-chip--reprint" href="${buyLink(s.card_name, s.reprint.card_key)}" rel="sponsored noopener" target="_blank">
+        ♻ same card, ${esc(s.reprint.card_key)} · ${usd(s.reprint.price_usd)} <b>−${usd(s.reprint.saves_per_copy)}</b>/copy</a>`);
+    const subs = s.substitutes.map(x => `
+      <div style="margin-top:.55rem">
+        <span class="px-chip px-chip--sub">⇄ ${esc(x.card_name)} · ${usd(x.price_usd)} <b>−${usd(x.saves_per_copy)}</b>/copy</span>
+        ${ciBar(x.effect, 'var(--cyan)', range)}
+      </div>`).join('');
+    return `<div class="px-swap">
+      <div class="px-swap-head">
+        <span class="px-swap-name">${esc(s.card_name)}</span>
+        <span class="px-price">${usd(s.median_listed_usd)}<span style="color:var(--muted);font-weight:600;font-size:.72rem"> /copy · ×${s.avg_copies ?? '—'}</span></span>
+      </div>
+      ${s.effect ? ciBar(s.effect, 'var(--gold)', range) + `<div class="px-ci-legend"><span>−${(range*100).toFixed(0)} pts</span><span>win-rate effect · 80% interval</span><span>+${(range*100).toFixed(0)} pts</span></div>` : ''}
+      <div>${chips.join('')}</div>
+      ${subs}
+      ${s.note ? `<div class="px-note">${esc(s.note)}</div>` : ''}
+      ${!s.reprint && !s.substitutes.length && !s.note ? `<div class="px-note">no cheaper reprint or statistically-indistinguishable alternative found.</div>` : ''}
+    </div>`;
+  }).join('');
+}
+
+function renderStats(sm, meta) {
+  const theme = getTheme({ TOP_DECK_NAME: sm?.deck_name || DECK_ID });
+  const stats = [
+    { v: usd(sm?.median_list_usd), l: 'median list', s: sm?.p25_list_usd != null ? `IQR ${usd(sm.p25_list_usd)} – ${usd(sm.p75_list_usd)}` : 'not enough priced lists', c: theme.c },
+    { v: usd(sm?.median_cheapest_usd), l: 'with cheapest reprints', s: sm?.min_cheapest_usd != null ? `cheapest list ${usd(sm.min_cheapest_usd)}` : '', c: 'var(--green)' },
+    { v: `${sm?.lists_priced ?? 0} / ${sm?.lists_recent ?? 0}`, l: 'lists priced', s: `avg coverage ${pct(sm?.coverage_all_lists)}`, c: 'var(--electric)' },
+    { v: meta.as_of || '—', l: 'prices as of', s: meta.sources.length ? 'TCGplayer market · via tcgcsv.com' : 'no price snapshot yet', c: 'var(--violet)' },
+  ];
+  return stats.map(x => `<div class="px-stat"><b style="color:${x.c}">${esc(x.v)}</b><span>${x.l}</span>${x.s ? `<small>${esc(x.s)}</small>` : ''}</div>`).join('');
+}
+
+function renderRows(cards) {
+  return cards.map(c => `<tr>
+      <td><span style="font-weight:700">${esc(c.card_name)}</span>
+          <span style="color:var(--muted);font-size:.7rem;margin-left:.35rem">${esc(c.typical_card_key || '')}</span></td>
+      <td class="num">${pct(c.inclusion_rate)}</td>
+      <td class="num">×${c.avg_copies ?? '—'}</td>
+      <td class="num" style="color:var(--gold);font-weight:800">${usd(c.median_listed_usd)}</td>
+      <td class="num">${c.cheapest_equiv_usd != null && c.median_listed_usd != null && c.cheapest_equiv_usd < c.median_listed_usd - 0.005
+          ? `<span style="color:var(--green)">${usd(c.cheapest_equiv_usd)}</span> <span style="color:var(--muted);font-size:.68rem">${esc(c.cheapest_card_key)}</span>`
+          : usd(c.cheapest_equiv_usd)}</td>
+      <td class="num">${usd(c.expected_cost_usd)}</td>
+      <td class="num"><a class="px-buy" rel="sponsored noopener" target="_blank" href="${buyLink(c.card_name, c.cheapest_card_key || c.typical_card_key)}">buy ↗</a></td>
+    </tr>`).join('');
+}
+
+function renderHist(costs, theme) {
+  if (costs.length < 3) { document.getElementById('px-hist').innerHTML = `<div class="px-empty"><span class="px-ball">◓</span>fewer than 3 fully priced lists.</div>`; return; }
+  Plotly.newPlot('px-hist', [{ type: 'histogram', x: costs, nbinsx: 18, marker: { color: theme.c + 'aa', line: { color: theme.c, width: 1 } },
+      hovertemplate: '%{x}<br>%{y} lists<extra></extra>' }], {
+    paper_bgcolor: 'transparent', plot_bgcolor: 'transparent', height: 260, bargap: .08,
+    font: { color: getComputedStyle(document.documentElement).getPropertyValue('--text').trim(), family: 'DM Sans, sans-serif', size: 11 },
+    margin: { t: 8, b: 36, l: 36, r: 8 },
+    xaxis: { tickprefix: '$', gridcolor: 'rgba(255,255,255,0.05)' }, yaxis: { gridcolor: 'rgba(255,255,255,0.05)' },
+  }, { displayModeBar: false, responsive: true });
+  document.getElementById('px-hist-note').textContent = `${costs.length} lists with ≥90% of cards priced.`;
+}
+
+async function initPicker() {
+  const d = await fetch('/api/prices/archetypes').then(r => r.json());
+  const sel = document.getElementById('px-picker');
+  sel.innerHTML = d.archetypes.map(a => `<option value="${esc(a.deck_id)}" ${a.deck_id === DECK_ID ? 'selected' : ''}>
+      ${esc(a.deck_name || a.deck_id)}${a.median_list_usd != null ? ' · ' + usd(a.median_list_usd) : ''}</option>`).join('');
+  sel.addEventListener('change', () => { location.href = `/decks/${encodeURIComponent(sel.value)}/price`; });
+}
+
+async function load() {
+  const d = await fetch(`/api/prices/deck/${encodeURIComponent(DECK_ID)}`).then(r => r.json());
+  const sm = d.summary, meta = d.meta;
+  PIDS = d.product_ids || {};
+  const name = sm?.deck_name || DECK_ID;
+  const theme = getTheme({ TOP_DECK_NAME: name });
+  document.getElementById('px-title').textContent = name.toLowerCase() + ', priced.';
+  const sp = getSprite(null, name);
+  if (sp) { const im = document.getElementById('px-sprite'); im.src = sp; im.style.display = ''; im.style.filter = `drop-shadow(0 0 10px ${theme.c}88)`; }
+  document.getElementById('px-loading').style.display = 'none';
+  document.getElementById('px-wrap').style.display = '';
+  if (meta.sources.includes('fixture')) {
+    const f = document.getElementById('px-fixture');
+    f.style.display = '';
+    f.textContent = '⚠ FIXTURE PRICES — synthetic numbers for layout testing only. these are not real market prices.';
+  }
+  document.getElementById('px-stats').innerHTML = renderStats(sm, meta);
+  document.getElementById('px-swaps').innerHTML = renderSwaps(d.swaps);
+  document.getElementById('px-rows').innerHTML = renderRows(d.cards) ||
+      `<tr><td colspan="7"><div class="px-empty"><span class="px-ball">◓</span>no recent lists for this archetype.</div></td></tr>`;
+  renderHist(d.list_costs, theme);
+  document.getElementById('px-asof').innerHTML = meta.as_of
+      ? `prices as of <b>${esc(meta.as_of)}</b> (daily snapshot of TCGplayer market prices via tcgcsv.com, ${meta.printings.toLocaleString()} printings). card prices move — check the store before you buy.`
+      : `no price snapshot has been taken yet — prices appear after the next nightly run.`;
+  document.getElementById('px-coverage').textContent = sm
+      ? `coverage: ${sm.lists_priced} of ${sm.lists_recent} recent lists are ≥90% priced (average ${pct(sm.coverage_all_lists)} of cards priced). unpriced cards are usually brand-new promos or printings we couldn't match to a TCGplayer product yet; they are left out, never guessed.`
+      : 'coverage: no recent lists for this archetype.';
+  document.getElementById('px-disclosure').textContent = meta.affiliate
+      ? 'affiliate disclosure: "buy" links go to TCGplayer through an affiliate link. if you buy something, indigo circuit may earn a small commission at no extra cost to you. it never changes which cards or swaps we show.'
+      : 'buy links go to a TCGplayer search. indigo circuit earns nothing from them.';
+}
+
+initPicker();
+load();
+{% endblock %}

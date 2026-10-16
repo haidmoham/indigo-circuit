@@ -343,6 +343,144 @@ def limitless_go(name):
 
 
 # ---------------------------------------------------------------------------
+# Deck prices
+# ---------------------------------------------------------------------------
+from urllib.parse import urlencode, urlparse, parse_qsl, urlunparse  # noqa: E402
+from . import pricing  # noqa: E402
+
+_CLICK_LOG = str(Path(DUCKDB_PATH).parent / "affiliate_clicks.jsonl")
+_TCGPLAYER_SEARCH = "https://www.tcgplayer.com/search/pokemon/product"
+
+
+def tcgplayer_url(card_name: str, set_code: str = "", number: str = "", product_id: str = "") -> str:
+    """Plain TCGplayer search URL for a card, wrapped in the Impact affiliate
+    link from TCGPLAYER_AFFILIATE_URL when configured.
+
+    TCGPLAYER_AFFILIATE_URL may contain '{url}' (replaced with the encoded
+    destination) or be a bare Impact tracking link, to which ?u=<destination>
+    is appended (Impact's deep-link parameter)."""
+    if product_id and product_id.isdigit():
+        dest = f"https://www.tcgplayer.com/product/{int(product_id)}"
+    else:
+        q = " ".join(x for x in (card_name, set_code, number) if x).strip()
+        dest = f"{_TCGPLAYER_SEARCH}?{urlencode({'q': q, 'productLineName': 'pokemon'})}"
+    aff = (os.environ.get("TCGPLAYER_AFFILIATE_URL") or "").strip()
+    if not aff:
+        return dest
+    if "{url}" in aff:
+        return aff.replace("{url}", urlquote(dest, safe=""))
+    parts = urlparse(aff)
+    qs = parse_qsl(parts.query, keep_blank_values=True) + [("u", dest)]
+    return urlunparse(parts._replace(query=urlencode(qs)))
+
+
+def _prices_meta():
+    rows = query(f"""
+        SELECT MAX(price_date) AS as_of, COUNT(*) AS printings,
+               LIST(DISTINCT source) AS sources
+        FROM {MARTS}.card_price_latest""")
+    r = rows[0] if rows else {}
+    return {
+        "as_of": str(r["AS_OF"]) if r.get("AS_OF") else None,
+        "printings": r.get("PRINTINGS") or 0,
+        "sources": list(r.get("SOURCES") or []),
+        "affiliate": bool((os.environ.get("TCGPLAYER_AFFILIATE_URL") or "").strip()),
+    }
+
+
+@app.get("/decks/<path:deck_id>/price")
+def deck_price_page(deck_id):
+    return render_template("deck_price.html", deck_id=deck_id)
+
+
+@app.get("/go/tcgplayer/<path:card>")
+def tcgplayer_go(card):
+    """Outbound buy link: log the click, then 302 to TCGplayer (affiliate-tagged
+    when TCGPLAYER_AFFILIATE_URL is set). Destination is always tcgplayer.com
+    (or the configured affiliate host) — never a user-supplied URL."""
+    card = card[:120]
+    set_code = (request.args.get("set") or "")[:12]
+    number = (request.args.get("n") or "")[:12]
+    pid = (request.args.get("pid") or "")[:12]
+    try:
+        with open(_CLICK_LOG, "a") as f:
+            f.write(json.dumps({
+                "ts": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+                "card": card, "set": set_code, "number": number,
+                "from": (request.referrer or "")[:200],
+                "deck": (request.args.get("deck") or "")[:80],
+                "pid": pid,
+            }) + "\n")
+    except OSError:
+        pass
+    app.logger.info(f"[go/tcgplayer] {card} {set_code} {number}")
+    resp = redirect(tcgplayer_url(card, set_code, number, pid), 302)
+    resp.headers["Cache-Control"] = "no-store"
+    resp.headers["X-Robots-Tag"] = "noindex, nofollow"
+    return resp
+
+
+@app.get("/api/prices/archetypes")
+def prices_archetypes():
+    def _fetch():
+        rows = query(f"""
+            SELECT deck_id, deck_name, lists_recent, lists_priced, lists_fully_priced,
+                   coverage_all_lists, median_list_usd, p25_list_usd, p75_list_usd,
+                   median_cheapest_usd, min_cheapest_usd, CAST(prices_as_of AS VARCHAR) AS prices_as_of
+            FROM {MARTS}.archetype_price_summary
+            WHERE deck_id <> 'other'
+            ORDER BY lists_recent DESC""")
+        return {"meta": _prices_meta(), "archetypes": pricing.lower_keys(rows)}
+    return cached_json("prices:archetypes", _fetch)
+
+
+@app.get("/api/prices/deck/<path:deck_id>")
+def prices_deck(deck_id):
+    source = request.args.get("source", "online")
+    if source not in ("online", "majors"):
+        source = "online"
+
+    def _fetch():
+        summary = query(f"""
+            SELECT deck_id, deck_name, lists_recent, lists_priced, lists_fully_priced,
+                   coverage_all_lists, median_list_usd, p25_list_usd, p75_list_usd,
+                   median_cheapest_usd, min_cheapest_usd, CAST(prices_as_of AS VARCHAR) AS prices_as_of
+            FROM {MARTS}.archetype_price_summary WHERE deck_id = ?""", (deck_id,))
+        cards = pricing.lower_keys(query(f"""
+            SELECT card_category, card_name, lists_with_card, total_lists, inclusion_rate,
+                   avg_copies, typical_card_key, median_listed_usd, cheapest_equiv_usd,
+                   cheapest_card_key, cheapest_variant, expected_cost_usd
+            FROM {MARTS}.archetype_card_prices
+            WHERE deck_id = ? AND inclusion_rate >= 0.05
+            ORDER BY expected_cost_usd DESC NULLS LAST, inclusion_rate DESC""", (deck_id,)))
+        lists = query(f"""
+            SELECT list_cost_usd, cheapest_cost_usd, unpriced_cards, priced_share
+            FROM {MARTS}.deck_list_prices WHERE deck_id = ?""", (deck_id,))
+        pids = {r["CARD_KEY"]: r["PROVIDER_ID"] for r in query(f"""
+            SELECT m.card_key, MAX(m.provider_id) AS provider_id
+            FROM raw.card_id_map m
+            WHERE m.status = 'mapped' AND m.provider_id IS NOT NULL
+              AND m.card_key IN (SELECT typical_card_key FROM {MARTS}.archetype_card_prices WHERE deck_id = ?
+                                 UNION SELECT cheapest_card_key FROM {MARTS}.archetype_card_prices WHERE deck_id = ?)
+            GROUP BY m.card_key""", (deck_id, deck_id))}
+        effects = pricing.load_effects(query, deck_id, source)
+        swaps = pricing.suggest_swaps(cards, effects)
+        hist = [r["LIST_COST_USD"] for r in lists
+                if r["LIST_COST_USD"] is not None and (r["PRICED_SHARE"] or 0) >= 0.9]
+        return {
+            "deck_id": deck_id,
+            "meta": _prices_meta(),
+            "summary": pricing.lower_keys(summary)[0] if summary else None,
+            "cards": cards,
+            "swaps": swaps,
+            "list_costs": sorted(hist),
+            "effects_source": source,
+            "product_ids": pids,
+        }
+    return cached_json(f"prices:deck:{deck_id}:{source}", _fetch)
+
+
+# ---------------------------------------------------------------------------
 # API
 # ---------------------------------------------------------------------------
 
@@ -876,6 +1014,7 @@ def meta_stats():
         rows = query(
             f"""
             SELECT deck_name,
+                   mode(deck_id)                                                   as deck_id,
                    max(deck_sprite)                                                as deck_sprite,
                    count(*)                                                        as appearances,
                    round(avg("placing"), 1)                                          as avg_placement,
@@ -1233,6 +1372,8 @@ def _run_pipeline():
         ["python3", "ingest/labs.py", "--discover", "--with-decklists", "--current-rotation"],
         ["python3", "ingest/load.py"],
         ["python3", "ingest/glicko.py"],
+        # Card prices from tcgcsv.com: once per daily build, capped requests, never fails the run.
+        ["python3", "ingest/prices.py"],
         ["bash",    "ingest/pipeline.sh", "--dbt-only"],
     ]
 
@@ -1241,7 +1382,8 @@ def _run_pipeline():
         # Per-step timeouts: load.py can take 60+ min on first seed; labs.py now
         # scrapes current-rotation decklists so it gets a generous (incremental) window.
         timeouts = {"ingest/load.py": 7200, "ingest/labs.py": 7200,
-                    "ingest/glicko.py": 600, "ingest/pipeline.sh": 600}
+                    "ingest/glicko.py": 600, "ingest/prices.py": 900,
+                    "ingest/pipeline.sh": 600}
         for cmd in steps:
             step_timeout = timeouts.get(cmd[1], 1800)
             for attempt in range(40):  # retry up to 39× if DuckDB locked

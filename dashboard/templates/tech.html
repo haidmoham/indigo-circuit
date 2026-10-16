@@ -95,6 +95,7 @@
     </div>
     <div>
       <div id="deck-title" style="font-size:1.3rem;font-weight:900"></div>
+      <a id="deck-price-link" href="#" style="display:none;font-size:.72rem;font-weight:800;color:var(--gold);text-decoration:none"></a>
       <div id="deck-subtitle" style="font-size:0.75rem;color:var(--muted);font-weight:600;
            margin-top:0.2rem;letter-spacing:0.04em;text-transform:uppercase"></div>
     </div>
@@ -296,6 +297,30 @@ function renderEV(el, rows, cardName, source) {
 }
 
 // ── Render card group ─────────────────────────────────────────────────────────
+// ── Card prices (optional; empty until a price snapshot exists) ──────────────
+let _priceByCard = {};
+let _priceAsOf   = null;
+function _priceCell(name) {
+  const p = _priceByCard[name];
+  if (!p || p.median_listed_usd == null) return '<span style="color:var(--muted);font-weight:600">—</span>';
+  return '$' + Number(p.median_listed_usd).toFixed(2);
+}
+async function loadPrices(deckId) {
+  _priceByCard = {}; _priceAsOf = null;
+  try {
+    const d = await fetch(`/api/prices/deck/${encodeURIComponent(deckId)}`).then(r => r.json());
+    for (const c of d.cards || []) _priceByCard[c.card_name] = c;
+    _priceAsOf = d.meta?.as_of || null;
+    const link = document.getElementById('deck-price-link');
+    if (link) {
+      const m = d.summary?.median_list_usd;
+      link.href = `/decks/${encodeURIComponent(deckId)}/price`;
+      link.textContent = m != null ? `list cost ~$${Math.round(m)} · price it ↗` : 'price this deck ↗';
+      link.style.display = '';
+    }
+  } catch (e) { /* prices are optional */ }
+}
+
 function renderGroup(title, icon, cards, themeColor) {
   if (!cards.length) return '';
 
@@ -338,11 +363,13 @@ function renderGroup(title, icon, cards, themeColor) {
                  color:var(--muted);font-weight:600;white-space:nowrap">
         ×${copies.toFixed(1)}
       </td>
+      <td style="padding:0.5rem 0.75rem;text-align:right;font-size:0.78rem;font-weight:800;
+                 color:var(--gold);white-space:nowrap">${_priceCell(name)}</td>
       <td style="padding:0.5rem 0.75rem;text-align:center;color:var(--muted);
                  font-size:0.7rem;opacity:0.5;white-space:nowrap">▾</td>
     </tr>
     <tr id="ev-${rowId}" class="ev-row" style="display:none">
-      <td colspan="6" style="padding:0">
+      <td colspan="7" style="padding:0">
         <div id="ev-content-${rowId}"></div>
       </td>
     </tr>`;
@@ -376,6 +403,7 @@ function renderGroup(title, icon, cards, themeColor) {
             <th style="padding:0.4rem 0.75rem;text-align:left">Set</th>
             <th style="padding:0.4rem 0.75rem;text-align:left;min-width:200px">Inclusion</th>
             <th style="padding:0.4rem 0.75rem;text-align:right">Avg Copies</th>
+            <th style="padding:0.4rem 0.75rem;text-align:right" title="median registered price per copy · prices as of ${_priceAsOf || 'n/a'}">Price</th>
             <th style="padding:0.4rem 0.75rem;width:24px"></th>
           </tr>
         </thead>
@@ -485,7 +513,10 @@ async function loadDeck(deckId, label) {
   document.getElementById('deck-meta').style.display    = 'none';
   document.getElementById('loading').style.display      = 'flex';
 
-  const cards = await fetch(`/api/tech/${encodeURIComponent(deckId)}?source=${currentSource}`).then(r => r.json());
+  const [cards] = await Promise.all([
+    fetch(`/api/tech/${encodeURIComponent(deckId)}?source=${currentSource}`).then(r => r.json()),
+    loadPrices(deckId),
+  ]);
 
   document.getElementById('loading').style.display = 'none';
 

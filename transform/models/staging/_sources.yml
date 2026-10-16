@@ -73,3 +73,17 @@ sources:
             tests: [not_null]
           - name: card_name
             tests: [not_null]
+
+      - name: card_prices
+        description: Daily card price snapshots from ingest/prices.py (one row per printing x variant x day x source). Empty when no provider key is configured.
+        columns:
+          - name: card_key
+            tests: [not_null]
+          - name: source
+            tests: [not_null]
+
+      - name: card_id_map
+        description: Limitless (set_code, number) -> price-provider card id, with func_key for reprint equivalence. status = mapped | unmapped.
+        columns:
+          - name: card_key
+            tests: [not_null]

@@ -46,6 +46,22 @@ _MAJORS_MARTS = ("major_card_archetype_stats", "major_card_match_splits")
 # broken scrape/load or a partial dbt build.
 _REGRESSION_FLOOR = 0.5
 
+# Raw tables are append-mostly (ingest is incremental and idempotent), so even a
+# modest drop vs live means a scrape/load wiped rows. Sharper threshold.
+_RAW_REGRESSION_TABLES = (
+    "tournaments", "standings", "matches", "decklists",
+    "major_tournaments", "major_standings", "major_matches", "major_decklists",
+    "card_prices",
+)
+_RAW_DROP_FLOOR = 0.8
+
+# Marts checked against live (beyond the absolute floors above). Price marts are
+# optional (no provider key => empty) so they are only compared when live has rows.
+_MART_REGRESSION_TABLES = (
+    "card_archetype_stats", "players", "card_match_splits", "seasonal_rankings",
+    "card_copy_splits", "card_price_latest", "deck_list_prices",
+)
+
 
 def _count(conn, schema: str, table: str):
     """Row count, or None if the table is missing (catches a dropped/unbuilt mart)."""
@@ -154,15 +170,26 @@ def validate_shadow(shadow_path: str, live_path: str | None = None,
                 lc = duckdb.connect(live_path, read_only=True)
                 try:
                     reg = {}
-                    for tbl in ("card_archetype_stats", "players"):
-                        s = online.get(tbl)
+                    for tbl in _MART_REGRESSION_TABLES:
+                        s = online.get(tbl) if tbl in online else _count(conn, marts_schema, tbl)
                         l = _count(lc, marts_schema, tbl)
                         reg[tbl] = {"shadow": s, "live": l}
-                        if s is not None and l and s < l * _REGRESSION_FLOOR:
+                        if l and (s is None or s < l * _REGRESSION_FLOOR):
                             failures.append(
-                                f"online mart '{tbl}' regressed: {s} rows vs {l} "
+                                f"mart '{tbl}' regressed: {s} rows vs {l} "
                                 f"live (< {int(_REGRESSION_FLOOR * 100)}%)")
                     metrics["regression"] = reg
+
+                    raw_reg = {}
+                    for tbl in _RAW_REGRESSION_TABLES:
+                        s = _count(conn, "raw", tbl)
+                        l = _count(lc, "raw", tbl)
+                        raw_reg[tbl] = {"shadow": s, "live": l}
+                        if l and (s is None or s < l * _RAW_DROP_FLOOR):
+                            failures.append(
+                                f"raw table '{tbl}' dropped sharply: {s} rows vs {l} "
+                                f"live (< {int(_RAW_DROP_FLOOR * 100)}%)")
+                    metrics["raw_regression"] = raw_reg
                 finally:
                     lc.close()
             except Exception as e:
