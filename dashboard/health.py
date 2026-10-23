@@ -3,6 +3,8 @@
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
+import logging
+
 import duckdb
 
 from .pipeline_gate import validate_shadow
@@ -111,6 +113,7 @@ def snapshot_health(database_path, marts_schema="dbt_dev_marts", max_age_hours=7
         result.update(status="stale" if stale else "ok", available=True, ready=not stale)
         return result
     except Exception as exc:
+        logging.exception("Snapshot check failed")
         # Public health must not disclose filesystem paths, SQL, or source data
         # in exception messages. The exception class still distinguishes errors.
         result.update(status="error", reason="database_check_failed", error_type=type(exc).__name__)
