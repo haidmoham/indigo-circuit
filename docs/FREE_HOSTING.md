@@ -2,6 +2,8 @@
 
 The Vercel Hobby migration is prepared in source. This document does not establish that a deployment is live or that `indigocircuit.app` has been cut over. Confirm the deployment, API results, source dates, and domain separately.
 
+**Deployment transport review is pending.** The Vercel file-upload API returned an unauthenticated content-addressed staging download for the compressed snapshot. Do not assume its upload storage is private. The source review found only public tournament/player/deck data and derived analytics, with no persistent database secrets; use of this full-file staging transport still requires the user's sharing review. No deployment or DNS cutover was performed during preparation, and the available upload tool offers no deletion or expiry control.
+
 ## Serving design
 
 - Root `app.py` exports the Flask application for Vercel and disables the embedded ingest scheduler and cache-prewarm thread before import.
