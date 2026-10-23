@@ -140,8 +140,10 @@ def load_tournaments(conn, client: LimitlessClient, max_pages: int = 3) -> int:
     return total
 
 
-def load_tournament_data(conn, client: LimitlessClient, tournament_id: str):
+def load_tournament_data(conn, client: LimitlessClient, tournament_id: str, require_pairings=False):
     standings = client.get_standings(tournament_id)
+    if not standings:
+        raise ValueError("Empty standings response; event replacement refused")
     insert_rows(conn,
         """
         INSERT INTO raw.standings
@@ -193,6 +195,8 @@ def load_tournament_data(conn, client: LimitlessClient, tournament_id: str):
         )
 
     pairings = client.get_pairings(tournament_id)
+    if not pairings and require_pairings:
+        raise ValueError("Empty pairings response; existing event matches must be preserved")
     if pairings:
         insert_rows(conn,
             """
@@ -253,11 +257,14 @@ def main():
             if cur.fetchone()[0] > 0 and not args.tournament:
                 continue
             try:
+                require_pairings = bool(args.tournament and conn.execute(
+                    "SELECT count(*) FROM raw.matches WHERE tournament_id = ?", (tid,)
+                ).fetchone()[0])
                 conn.execute("BEGIN TRANSACTION")
                 if args.tournament:
                     for table in ("standings", "matches", "decklists"):
                         conn.execute(f"DELETE FROM raw.{table} WHERE tournament_id = ?", (tid,))
-                load_tournament_data(conn, client, tid)
+                load_tournament_data(conn, client, tid, require_pairings=require_pairings)
                 conn.execute("COMMIT")
             except Exception as e:
                 conn.execute("ROLLBACK")
