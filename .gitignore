@@ -17,4 +17,12 @@ profiles.yml
 .DS_Store
 *.log
 data/*.duckdb
+data/**/*.duckdb
+data/**/*.duckdb.wal
+data/**/*.duckdb.gz
+data/*.duckdb.wal
+data/*.duckdb.gz
 transform/.user.yml
+
+# Generated CDN assets for the Vercel build.
+public/

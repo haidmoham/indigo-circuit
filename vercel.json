@@ -1,0 +1,12 @@
+{
+  "$schema": "https://openapi.vercel.sh/vercel.json",
+  "framework": "flask",
+  "buildCommand": "python scripts/build_vercel.py",
+  "functions": {
+    "app.py": {
+      "maxDuration": 60,
+      "includeFiles": "{dashboard/**,data/ptcg.duckdb,data/formats.json}",
+      "excludeFiles": "{ingest/**,transform/**,scripts/**,.venv/**,data/historical/**,data/recovery/**,data/abandoned*/**,data/*-recovery.duckdb,data/write-probe.duckdb,data/*.wal,data/*.gz}"
+    }
+  }
+}

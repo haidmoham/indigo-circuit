@@ -1,0 +1,24 @@
+.git
+.env
+.env.*
+.venv
+venv
+__pycache__
+**/__pycache__
+**/*.pyc
+**/*.log
+transform/target
+transform/dbt_packages
+transform/logs
+transform/profiles.yml
+data/*.wal
+data/*shadow*
+data/pipeline*
+data/last_gate.json
+data/**
+!data/ptcg.duckdb
+!data/ptcg.duckdb.gz
+!data/formats.json
+
+# The validated database is intentionally uploaded to the private function
+# bundle. It must never be copied to public/ or committed to the public repo.

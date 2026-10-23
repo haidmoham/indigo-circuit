@@ -214,6 +214,20 @@ def robots():
     return "User-agent: *\nDisallow: /admin/\nAllow: /\n", 200, {"Content-Type": "text/plain"}
 
 
+@app.get("/api/health")
+def data_health():
+    from .health import snapshot_health
+    health = cached(
+        "snapshot_health",
+        lambda: snapshot_health(
+            DUCKDB_PATH, marts_schema=MARTS,
+            max_age_hours=int(os.environ.get("DATA_MAX_AGE_HOURS", "72")),
+        ),
+        ttl=30,
+    )
+    return jsonify(health), 200 if health["ready"] else 503, {"Cache-Control": "no-store"}
+
+
 @app.post("/api/ev/compute")
 def ev_compute():
     """
@@ -1084,8 +1098,9 @@ def _prewarm():
             pass   # pre-warm is best-effort; real requests still work
 
 
-_prewarm_thread = threading.Thread(target=_prewarm, daemon=True)
-_prewarm_thread.start()
+if not os.environ.get("DISABLE_PREWARM"):
+    _prewarm_thread = threading.Thread(target=_prewarm, daemon=True)
+    _prewarm_thread.start()
 
 
 # ---------------------------------------------------------------------------
@@ -1093,7 +1108,10 @@ _prewarm_thread.start()
 # the /data volume without needing a separate Railway cron service)
 # Fires at 06:00 UTC daily. Disable with DISABLE_SCHEDULER=1.
 # ---------------------------------------------------------------------------
-import fcntl
+try:
+    import fcntl
+except ImportError:
+    fcntl = None  # Windows can serve read-only snapshots; ingestion needs POSIX locking.
 import subprocess
 
 _PIPELINE_LOCK = str(Path(DUCKDB_PATH).parent / "pipeline.lock")
@@ -1183,6 +1201,10 @@ def _run_pipeline():
     global _pipeline_running
     log = app.logger
     from .pipeline_gate import validate_shadow, result_record
+
+    if fcntl is None:
+        log.error("[pipeline] Ingestion requires POSIX file locking; use a Linux runner")
+        return
 
     # File-based mutex: only one gunicorn worker runs the pipeline at a time.
     # (Each worker spawns its own scheduler thread; without this they'd race.)
@@ -1358,14 +1380,17 @@ def _start_scheduler():
     t.start()
 
 
-# Clean up any stale signal file left by a previously interrupted pipeline.
-try:
-    Path(_PIPELINE_SIGNAL).unlink(missing_ok=True)
-except Exception:
-    pass
-
 if not os.environ.get("DISABLE_SCHEDULER"):
-    _start_scheduler()
+    if fcntl is None:
+        app.logger.warning("[pipeline] Scheduler disabled: POSIX file locking is unavailable")
+    else:
+        # Only the writable scheduler owns its signal file. Read-only request
+        # workers must not remove a signal belonging to an active data build.
+        try:
+            Path(_PIPELINE_SIGNAL).unlink(missing_ok=True)
+        except OSError:
+            pass
+        _start_scheduler()
 
 
 @app.get("/admin/pipeline-health")
@@ -1464,6 +1489,9 @@ def _run_majors_scrape():
     Expected runtime: 4-8 hours for 65 tournaments × full field.
     """
     log = app.logger
+    if fcntl is None:
+        log.error("[majors-scrape] Ingestion requires POSIX file locking; use a Linux runner")
+        return
     try:
         lf = open(_PIPELINE_LOCK, "w")
         fcntl.flock(lf, fcntl.LOCK_EX | fcntl.LOCK_NB)

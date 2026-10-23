@@ -1,8 +1,10 @@
 # Indigo Circuit — Project Context
 
-**Live:** https://indigocircuit.app  
+**Public domain:** https://indigocircuit.app
 **Repo:** github.com/haidmoham/indigo-circuit
-**Deployed on:** Railway (service: `indigo-circuit`, volume: `indigo-circuit-volume` at `/data`)
+**Restoration:** Vercel Hobby with a private immutable DuckDB snapshot is prepared in source. Production deployment and domain cutover remain unverified here; see [free hosting recovery](docs/FREE_HOSTING.md).
+
+**Previous hosting:** Railway service `indigo-circuit`, volume at `/data`. This is historical context only. The current recovery must not use Railway, paid hosting, or paid additions.
 
 ---
 
@@ -19,19 +21,21 @@ Competitive Pokémon TCG intelligence platform. Two data sources:
 
 | Layer | Tech |
 |---|---|
-| Storage | DuckDB at `/data/ptcg.duckdb` (Railway persistent volume) |
+| Storage | Complete DuckDB snapshot at `data/ptcg.duckdb`, privately bundled with the function |
 | Transform | dbt (DuckDB adapter), schema: `dbt_dev_marts` |
-| Backend | Flask + gunicorn (2 workers), Python 3 |
+| Backend | Flask, Python 3.12; root `app.py` exports the Vercel entrypoint |
 | Frontend | Vanilla JS + custom CSS (dark theme, no framework) |
-| Deploy | Railway — auto-deploy on push to `main` |
+| Deploy | Proposed Vercel Hobby deployment; `scripts/build_vercel.py` gates the snapshot and prepares static assets |
 
-**Key env vars on Railway:**
+**Serving configuration:**
 ```
-DUCKDB_PATH=/data/ptcg.duckdb
 DBT_MARTS_SCHEMA=dbt_dev_marts
-ADMIN_SECRET=<secret>
-LIMITLESS_API_KEY=<key>
+DATA_MAX_AGE_HOURS=72
 ```
+
+The default `DUCKDB_PATH` resolves to the bundled database. Root `app.py` disables the embedded scheduler and prewarm thread. Leave `ADMIN_SECRET` unset so admin ingest endpoints return 403; do not upload `.env` or ingestion credentials. Request workers never rebuild the snapshot. The optional private upload `data/ptcg.duckdb.gz` is decompressed and checked before replacement; the database must never enter `public/` or the public repository. Keep all raw tables as well as marts because both are queried by the application.
+
+`GET /api/health` distinguishes missing, error, incomplete, stale, and healthy (`ok`) data. It reports the latest covered event and newest stored-result load time per source, without claiming complete coverage or a successful current source check. **No daily refresh job is wired for the proposed snapshot deployment.** It will serve the bundled data until a new validated snapshot is deployed. Deployment success and source freshness require separate evidence.
 
 ---
 
@@ -138,7 +142,7 @@ raw.major_decklists    — same shape as raw.decklists
 
 ## Pipeline
 
-Nightly pipeline runs at 06:00 UTC inside the gunicorn process (scheduler thread in app.py):
+The legacy POSIX scheduler in `dashboard/app.py` contains a 06:00 UTC nightly loop. It is disabled by the proposed Vercel entrypoint. The following is the retained pipeline shape, not evidence of an active production schedule:
 
 1. `python3 ingest/labs.py --discover --with-decklists --current-rotation` — auto-discover new majors from the Labs index, then scrape standings + top-64 decklists for post-April-1 events (incremental; cached players skipped)
 2. `python3 ingest/load.py` — refresh online tournaments
@@ -192,7 +196,7 @@ Bayesian meta-weighted EV calculator for submitted decklists.
 
 ```bash
 # Install deps
-pip install -r requirements.txt
+pip install -r requirements-ingest.txt
 cd transform && dbt deps
 
 # Run ingest (writes to data/ptcg.duckdb)
@@ -203,11 +207,10 @@ python3 ingest/labs.py
 cd transform && dbt run
 
 # Run dashboard
-python3 -m dashboard.app   # http://localhost:5001
+python3 -m flask --app app run --port 5001   # read-only http://localhost:5001
 
 # Trigger EV mart specifically
 cd transform && dbt run --select card_match_splits
 ```
 
-**DuckDB path:** `data/ptcg.duckdb` locally, `/data/ptcg.duckdb` on Railway (volume mount).  
-**Admin secret:** stored in Railway env vars. Locally: `export ADMIN_SECRET=$(railway variables --service indigo-circuit --json | python3 -c "import sys,json; print(json.load(sys.stdin)['ADMIN_SECRET'])")`
+**DuckDB path:** `data/ptcg.duckdb` for local serving and the private function bundle. Use a different candidate path for recovery and preserve the previous good snapshot until the production checker passes. See [free hosting recovery](docs/FREE_HOSTING.md) for the manual workflow and current limitations.
