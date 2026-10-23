@@ -35,9 +35,13 @@ import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from ingest.load import insert_rows
+
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 log = logging.getLogger(__name__)
+SESSION = requests.Session()
 
 LABS_BASE = "https://labs.limitlesstcg.com"
 DATA_DIR = Path(__file__).parent.parent / "data"
@@ -134,7 +138,7 @@ def discover_tournaments() -> list[dict]:
     The index lists tournaments newest-first, so brand-new events appear here
     within hours of results posting — no manual JSON edit required.
     """
-    resp = requests.get(f"{LABS_BASE}/", timeout=30)
+    resp = SESSION.get(f"{LABS_BASE}/", timeout=30)
     resp.raise_for_status()
     soup = BeautifulSoup(resp.content, "html.parser")
     out: list[dict] = []
@@ -169,7 +173,7 @@ def discover_tournaments() -> list[dict]:
 
 def fetch_standings(tournament_id: str) -> list[dict]:
     url = f"{LABS_BASE}/{tournament_id}/standings"
-    resp = requests.get(url, timeout=30)
+    resp = SESSION.get(url, timeout=30)
     resp.raise_for_status()
     time.sleep(0.5)  # be polite
 
@@ -238,7 +242,7 @@ def fetch_player_matches(tournament_id: str, player_id: str) -> list[dict]:
     """Round-by-round results for a player. Returns [] on any failure."""
     url = f"{LABS_BASE}/{tournament_id}/player/{player_id}"
     try:
-        resp = requests.get(url, timeout=30)
+        resp = SESSION.get(url, timeout=30)
         if resp.status_code == 404:
             return []
         resp.raise_for_status()
@@ -314,7 +318,7 @@ def fetch_player_decklist(tournament_id: str, player_id: str) -> list[dict]:
     """Full card list for a player. Returns [] if not available (404) or unparseable."""
     url = f"{LABS_BASE}/{tournament_id}/player/{player_id}/decklist"
     try:
-        resp = requests.get(url, timeout=30)
+        resp = SESSION.get(url, timeout=30)
         if resp.status_code == 404:
             return []
         resp.raise_for_status()
@@ -542,7 +546,7 @@ def upsert_tournament(conn, t: dict):
 
 def load_standings(conn, tournament_id: str, standings: list[dict]):
     conn.execute("DELETE FROM raw.major_standings WHERE labs_tournament_id = ?", (tournament_id,))
-    conn.executemany("""
+    insert_rows(conn, """
         INSERT INTO raw.major_standings
           (labs_tournament_id, player_id, player_name, country,
            "placing", wins, losses, ties, deck_id, deck_name, deck_sprite)
@@ -580,7 +584,7 @@ def load_player_matches(conn, tournament_id: str, player_id: str, matches: list[
     )
     if not matches:
         return
-    conn.executemany("""
+    insert_rows(conn, """
         INSERT INTO raw.major_matches
           (labs_tournament_id, player_id, round_number, result,
            opponent_name, opponent_deck_id, opponent_deck_name)
@@ -600,7 +604,7 @@ def load_player_decklist(conn, tournament_id: str, player_id: str, cards: list[d
     )
     if not cards:
         return
-    conn.executemany("""
+    insert_rows(conn, """
         INSERT INTO raw.major_decklists
           (labs_tournament_id, player_id, card_category, card_name,
            card_set, card_number, card_count)
@@ -743,6 +747,7 @@ def main():
         # during the actual writes (~seconds), not the entire scrape duration.
         conn = get_conn()
         try:
+            conn.execute("BEGIN TRANSACTION")
             upsert_tournament(conn, t)
             log.info(f"  {t['id']} {t['name']}")
             standings = fetch_standings(t["id"])
@@ -787,6 +792,7 @@ def main():
         # Write burst — connection open only for the insert loop
         conn = get_conn()
         try:
+            conn.execute("BEGIN TRANSACTION")
             dl_count = match_count = 0
             for p, matches, decklist in scraped:
                 load_player_matches(conn, t["id"], p["player_id"], matches)

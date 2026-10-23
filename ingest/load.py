@@ -93,6 +93,18 @@ def ensure_schema(conn):
     log.info("Schema ready")
 
 
+def insert_rows(conn, sql, rows):
+    """Insert a JSON batch, avoiding slow per-value Python/DuckDB bindings."""
+    if not rows:
+        return
+    head, values = sql.rsplit("VALUES", 1)
+    if values.count("?") != len(rows[0]):
+        raise ValueError("Insert columns do not match the supplied rows")
+    columns = ", ".join(f"json_extract_string(value, '$[{index}]')"
+                        for index in range(len(rows[0])))
+    conn.execute(head + "SELECT " + columns + " FROM json_each(?)", [json.dumps(rows)])
+
+
 def load_tournaments(conn, client: LimitlessClient, max_pages: int = 3) -> int:
     from datetime import datetime, timezone, timedelta
     cutoff = datetime.now(timezone.utc) - timedelta(days=3 * 365)
@@ -130,7 +142,7 @@ def load_tournaments(conn, client: LimitlessClient, max_pages: int = 3) -> int:
 
 def load_tournament_data(conn, client: LimitlessClient, tournament_id: str):
     standings = client.get_standings(tournament_id)
-    conn.executemany(
+    insert_rows(conn,
         """
         INSERT INTO raw.standings
           (tournament_id, player_username, player_name, country,
@@ -170,7 +182,7 @@ def load_tournament_data(conn, client: LimitlessClient, tournament_id: str):
                     card.get("number"), card.get("count"),
                 ))
     if decklist_rows:
-        conn.executemany(
+        insert_rows(conn,
             """
             INSERT INTO raw.decklists
               (tournament_id, player_username, card_category,
@@ -182,7 +194,7 @@ def load_tournament_data(conn, client: LimitlessClient, tournament_id: str):
 
     pairings = client.get_pairings(tournament_id)
     if pairings:
-        conn.executemany(
+        insert_rows(conn,
             """
             INSERT INTO raw.matches
               (tournament_id, round, phase, table_number, match_id, player1, player2, winner)
@@ -235,17 +247,27 @@ def main():
             tournament_ids = [r[0] for r in cur.fetchall()]
 
         log.info(f"Loading data for {len(tournament_ids)} tournaments...")
+        failed = []
         for tid in tournament_ids:
             cur = conn.execute("SELECT COUNT(*) FROM raw.standings WHERE tournament_id = ?", (tid,))
             if cur.fetchone()[0] > 0 and not args.tournament:
                 continue
             try:
+                conn.execute("BEGIN TRANSACTION")
+                if args.tournament:
+                    for table in ("standings", "matches", "decklists"):
+                        conn.execute(f"DELETE FROM raw.{table} WHERE tournament_id = ?", (tid,))
                 load_tournament_data(conn, client, tid)
+                conn.execute("COMMIT")
             except Exception as e:
+                conn.execute("ROLLBACK")
+                failed.append(tid)
                 log.warning(f"  {tid}: skipped — {e}")
 
         conn.commit()
         log.info("Done")
+        if failed:
+            raise SystemExit(f"Incomplete ingest: {len(failed)} tournament(s) failed; rerun to resume")
     finally:
         conn.close()
 
